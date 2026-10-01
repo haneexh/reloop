@@ -1,19 +1,9 @@
-export type Json =
-  | string
-  | number
-  | boolean
-  | null
-  | { [key: string]: Json | undefined }
-  | Json[];
+export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export type PartnerType = "repair" | "ngo" | "recycler" | "refurbisher" | "informal";
 export type RecommendedAction = "repair" | "reuse" | "donate" | "refurbish" | "recycle";
 export type ItemCondition =
-  | "functional"
-  | "cosmetic_damage"
-  | "partially_working"
-  | "severely_damaged"
-  | string;
+  "functional" | "cosmetic_damage" | "partially_working" | "severely_damaged" | string;
 
 export interface Database {
   public: {
