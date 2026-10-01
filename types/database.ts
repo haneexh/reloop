@@ -1,0 +1,117 @@
+export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
+
+export type PartnerType = "repair" | "ngo" | "recycler" | "refurbisher" | "informal";
+export type RecommendedAction = "repair" | "reuse" | "donate" | "refurbish" | "recycle";
+export type ItemCondition = "functional" | "cosmetic_damage" | "severely_damaged" | string;
+
+export interface Database {
+  public: {
+    Tables: {
+      items: {
+        Row: {
+          id: string;
+          image_url: string | null;
+          item_type: string | null;
+          brand: string | null;
+          estimated_age_years: number | null;
+          condition: ItemCondition | null;
+          repair_cost_est: number | null;
+          resale_value_est: number | null;
+          co2e_saved_est: number | null;
+          waste_avoided_kg: number | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          image_url?: string | null;
+          item_type?: string | null;
+          brand?: string | null;
+          estimated_age_years?: number | null;
+          condition?: ItemCondition | null;
+          repair_cost_est?: number | null;
+          resale_value_est?: number | null;
+          co2e_saved_est?: number | null;
+          waste_avoided_kg?: number | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          image_url?: string | null;
+          item_type?: string | null;
+          brand?: string | null;
+          estimated_age_years?: number | null;
+          condition?: ItemCondition | null;
+          repair_cost_est?: number | null;
+          resale_value_est?: number | null;
+          co2e_saved_est?: number | null;
+          waste_avoided_kg?: number | null;
+          created_at?: string;
+        };
+      };
+      partners: {
+        Row: {
+          id: string;
+          name: string;
+          partner_type: PartnerType;
+          lat: number;
+          lng: number;
+          city: string;
+          contact: string | null;
+          verified: boolean;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          partner_type: PartnerType;
+          lat: number;
+          lng: number;
+          city: string;
+          contact?: string | null;
+          verified?: boolean;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          partner_type?: PartnerType;
+          lat?: number;
+          lng?: number;
+          city?: string;
+          contact?: string | null;
+          verified?: boolean;
+        };
+      };
+      recommendations: {
+        Row: {
+          id: string;
+          item_id: string;
+          recommended_action: RecommendedAction;
+          confidence: number | null;
+          rationale: string | null;
+          alt_action_1: string | null;
+          alt_action_2: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          item_id: string;
+          recommended_action: RecommendedAction;
+          confidence?: number | null;
+          rationale?: string | null;
+          alt_action_1?: string | null;
+          alt_action_2?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          item_id?: string;
+          recommended_action?: RecommendedAction;
+          confidence?: number | null;
+          rationale?: string | null;
+          alt_action_1?: string | null;
+          alt_action_2?: string | null;
+          created_at?: string;
+        };
+      };
+    };
+  };
+}
