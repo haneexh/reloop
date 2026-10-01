@@ -1,8 +1,19 @@
-export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[];
 
 export type PartnerType = "repair" | "ngo" | "recycler" | "refurbisher" | "informal";
 export type RecommendedAction = "repair" | "reuse" | "donate" | "refurbish" | "recycle";
-export type ItemCondition = "functional" | "cosmetic_damage" | "severely_damaged" | string;
+export type ItemCondition =
+  | "functional"
+  | "cosmetic_damage"
+  | "partially_working"
+  | "severely_damaged"
+  | string;
 
 export interface Database {
   public: {
@@ -14,7 +25,7 @@ export interface Database {
           item_type: string | null;
           brand: string | null;
           estimated_age_years: number | null;
-          condition: ItemCondition | null;
+          condition: string | null;
           repair_cost_est: number | null;
           resale_value_est: number | null;
           co2e_saved_est: number | null;
@@ -27,7 +38,7 @@ export interface Database {
           item_type?: string | null;
           brand?: string | null;
           estimated_age_years?: number | null;
-          condition?: ItemCondition | null;
+          condition?: string | null;
           repair_cost_est?: number | null;
           resale_value_est?: number | null;
           co2e_saved_est?: number | null;
@@ -40,13 +51,14 @@ export interface Database {
           item_type?: string | null;
           brand?: string | null;
           estimated_age_years?: number | null;
-          condition?: ItemCondition | null;
+          condition?: string | null;
           repair_cost_est?: number | null;
           resale_value_est?: number | null;
           co2e_saved_est?: number | null;
           waste_avoided_kg?: number | null;
           created_at?: string;
         };
+        Relationships: [];
       };
       partners: {
         Row: {
@@ -79,6 +91,7 @@ export interface Database {
           contact?: string | null;
           verified?: boolean;
         };
+        Relationships: [];
       };
       recommendations: {
         Row: {
@@ -111,7 +124,28 @@ export interface Database {
           alt_action_2?: string | null;
           created_at?: string;
         };
+        Relationships: [
+          {
+            foreignKeyName: "recommendations_item_id_fkey";
+            columns: ["item_id"];
+            isOneToOne: false;
+            referencedRelation: "items";
+            referencedColumns: ["id"];
+          },
+        ];
       };
+    };
+    Views: {
+      [_ in never]: never;
+    };
+    Functions: {
+      [_ in never]: never;
+    };
+    Enums: {
+      [_ in never]: never;
+    };
+    CompositeTypes: {
+      [_ in never]: never;
     };
   };
 }

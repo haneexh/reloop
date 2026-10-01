@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "reloop — Hackathon MVP",
+  title: "reloop — Circular Economy MVP",
   description: "Next.js 14 App Router guest-only MVP built for the 24-hour hackathon",
 };
 
@@ -17,34 +18,40 @@ export default function RootLayout({
         <header className="sticky top-0 z-40 w-full border-b border-zinc-200 bg-white/95 backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/95">
           <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4 sm:px-6">
             <div className="flex items-center gap-6">
-              <a
+              <Link
                 href="/"
                 className="font-semibold text-base tracking-tight text-zinc-900 dark:text-zinc-50"
               >
                 reloop
-              </a>
+              </Link>
               <nav className="hidden sm:flex items-center gap-5 text-sm text-zinc-600 dark:text-zinc-400">
-                <a
-                  href="#overview"
-                  className="hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
+                <Link
+                  href="/analyze"
+                  className="font-medium text-zinc-900 hover:text-zinc-900 dark:text-zinc-100 dark:hover:text-zinc-50 transition-colors"
                 >
-                  Overview
-                </a>
-                <a
-                  href="#features"
+                  Analyze Item
+                </Link>
+                <Link
+                  href="/#features"
                   className="hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
                 >
                   Architecture
-                </a>
-                <a
-                  href="#setup"
+                </Link>
+                <Link
+                  href="/#setup"
                   className="hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
                 >
                   Setup
-                </a>
+                </Link>
               </nav>
             </div>
             <div className="flex items-center gap-3">
+              <Link
+                href="/analyze"
+                className="hidden xs:inline-flex sm:inline-flex items-center justify-center rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              >
+                + New Intake
+              </Link>
               <div className="inline-flex items-center gap-1.5 border border-zinc-200 bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700 rounded-md dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-300">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
                 <span>Guest Mode</span>
