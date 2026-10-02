@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS recommendations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   item_id UUID NOT NULL REFERENCES items(id) ON DELETE CASCADE,
   recommended_action TEXT NOT NULL CHECK (
-    recommended_action IN ('repair', 'reuse', 'donate', 'refurbish', 'recycle')
+    recommended_action IN ('repair', 'reuse', 'donate', 'resell', 'refurbish', 'recycle')
   ),
   confidence NUMERIC,
   rationale TEXT,

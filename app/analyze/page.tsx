@@ -2,8 +2,9 @@
 
 import { useState, useRef, ChangeEvent, DragEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { calculateCircularImpact } from "@/lib/impact-calculator";
+import { evaluateItem } from "@/lib/decisionEngine";
 
 type AssessmentCondition =
   "functional" | "cosmetic_damage" | "partially_working" | "severely_damaged";
@@ -20,6 +21,8 @@ interface ItemFormData {
 const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024; // 8MB
 
 export default function AnalyzePage() {
+  const router = useRouter();
+
   // Step tracking: 'upload' | 'analyzing' | 'review' | 'saving' | 'success'
   const [step, setStep] = useState<"upload" | "analyzing" | "review" | "saving" | "success">(
     "upload"
@@ -195,7 +198,7 @@ export default function AnalyzePage() {
     }
   };
 
-  // Step 3 -> 4: Save verified item to Supabase `items` table
+  // Step 3 -> 4: Save verified item to Supabase `items` table, evaluate recommendations, and redirect
   const handleConfirmAndSave = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -210,14 +213,17 @@ export default function AnalyzePage() {
     try {
       const ageNum = formData.estimated_age_years ? parseFloat(formData.estimated_age_years) : null;
 
-      // Calculate baseline circular metrics
-      const impact = calculateCircularImpact({
-        itemType: formData.item_type,
+      // 1. Calculate deterministic decision engine metrics
+      const evaluation = evaluateItem({
+        item_type: formData.item_type,
+        brand: formData.brand.trim() || null,
+        estimated_age_years: ageNum,
         condition: formData.condition,
-        estimatedAgeYears: ageNum,
+        material_recoverable: formData.material_recoverable,
       });
 
-      const { data, error } = await supabase
+      // 2. Insert item into items table
+      const { data: itemData, error: itemError } = await supabase
         .from("items")
         .insert({
           image_url: uploadedPublicUrl || previewUrl,
@@ -225,21 +231,40 @@ export default function AnalyzePage() {
           brand: formData.brand.trim() || null,
           estimated_age_years: ageNum,
           condition: formData.condition,
-          repair_cost_est: impact.repairCostEst,
-          resale_value_est: impact.resaleValueEst,
-          co2e_saved_est: impact.co2eSavedEst,
-          waste_avoided_kg: impact.wasteAvoidedKg,
+          repair_cost_est: evaluation.repair_cost_est,
+          resale_value_est: evaluation.resale_value_est,
+          co2e_saved_est: evaluation.co2e_saved_kg,
+          waste_avoided_kg: evaluation.waste_avoided_kg,
         })
         .select()
         .single();
 
-      if (error) {
-        console.error("Database insert error:", error);
-        throw new Error(error.message);
+      if (itemError || !itemData) {
+        console.error("Database insert error:", itemError);
+        throw new Error(itemError?.message || "Failed to save item to database.");
       }
 
-      setSavedItemId(data?.id || "saved");
+      // 3. Save recommendation into recommendations table
+      const { error: recError } = await supabase
+        .from("recommendations")
+        .insert({
+          item_id: itemData.id,
+          recommended_action: evaluation.recommended_action,
+          confidence: evaluation.confidence,
+          rationale: evaluation.rationale,
+          alt_action_1: evaluation.alt_action_1,
+          alt_action_2: evaluation.alt_action_2,
+        });
+
+      if (recError) {
+        console.warn("Recommendation insert notice:", recError.message);
+      }
+
+      setSavedItemId(itemData.id);
       setStep("success");
+
+      // 4. Redirect immediately to the results page
+      router.push(`/analyze/${itemData.id}/results`);
     } catch (err) {
       console.error("Save error:", err);
       setErrorMessage(
@@ -270,10 +295,12 @@ export default function AnalyzePage() {
   };
 
   // Current calculated impact for live preview
-  const liveImpact = calculateCircularImpact({
-    itemType: formData.item_type || "item",
+  const liveImpact = evaluateItem({
+    item_type: formData.item_type || "item",
+    brand: formData.brand || null,
     condition: formData.condition,
-    estimatedAgeYears: formData.estimated_age_years ? parseFloat(formData.estimated_age_years) : 2,
+    estimated_age_years: formData.estimated_age_years ? parseFloat(formData.estimated_age_years) : 2,
+    material_recoverable: formData.material_recoverable,
   });
 
   return (
@@ -394,8 +421,13 @@ export default function AnalyzePage() {
               onClick={handleStartAnalysis}
               className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-5 py-2 text-xs font-medium text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
             >
-              Assess Item Condition
+              Assess Item Condition &rarr;
             </button>
+          </div>
+
+          <div className="rounded-md border border-zinc-200 bg-zinc-50/50 p-3 text-[11px] text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/40 dark:text-zinc-400">
+            <span className="font-medium text-zinc-700 dark:text-zinc-300">Privacy note: </span>
+            Uploaded item photos are processed to estimate physical condition and stored in your guest session database. No personal identifying information is collected or tracked.
           </div>
         </div>
       )}
@@ -462,13 +494,13 @@ export default function AnalyzePage() {
                   <div className="rounded border border-zinc-100 bg-zinc-50 p-1.5 dark:border-zinc-800 dark:bg-zinc-950">
                     <span className="text-zinc-500">CO2e Saved</span>
                     <div className="font-bold text-zinc-900 dark:text-zinc-100">
-                      {liveImpact.co2eSavedEst} kg
+                      {liveImpact.co2e_saved_kg} kg
                     </div>
                   </div>
                   <div className="rounded border border-zinc-100 bg-zinc-50 p-1.5 dark:border-zinc-800 dark:bg-zinc-950">
                     <span className="text-zinc-500">Waste Avoided</span>
                     <div className="font-bold text-zinc-900 dark:text-zinc-100">
-                      {liveImpact.wasteAvoidedKg} kg
+                      {liveImpact.waste_avoided_kg} kg
                     </div>
                   </div>
                 </div>
@@ -639,6 +671,14 @@ export default function AnalyzePage() {
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+            {savedItemId && (
+              <Link
+                href={`/analyze/${savedItemId}/results`}
+                className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-5 py-2 text-xs font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              >
+                View Circularity Results &rarr;
+              </Link>
+            )}
             <button
               type="button"
               onClick={handleReset}
@@ -648,7 +688,7 @@ export default function AnalyzePage() {
             </button>
             <Link
               href="/"
-              className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-5 py-2 text-xs font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              className="inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white px-4 py-2 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
             >
               Back to Overview
             </Link>

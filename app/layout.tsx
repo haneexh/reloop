@@ -3,8 +3,11 @@ import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "reloop — Circular Economy MVP",
-  description: "Next.js 14 App Router guest-only MVP built for the 24-hour hackathon",
+  title: "RE:LOOP — AI Circularity Decision Engine & PP-RI",
+  description: "AI-Powered post-purchase circular lifecycle intelligence, PP-RI scoring, and destination routing for discarded electronics.",
+  icons: {
+    icon: "/icon.svg",
+  },
 };
 
 export default function RootLayout({
@@ -20,9 +23,10 @@ export default function RootLayout({
             <div className="flex items-center gap-6">
               <Link
                 href="/"
-                className="font-semibold text-base tracking-tight text-zinc-900 dark:text-zinc-50"
+                className="font-semibold text-base tracking-tight text-zinc-900 dark:text-zinc-50 flex items-center gap-2"
               >
-                reloop
+                <span className="inline-block h-2 w-2 rounded-full bg-emerald-500"></span>
+                <span>reloop</span>
               </Link>
               <nav className="hidden sm:flex items-center gap-5 text-sm text-zinc-600 dark:text-zinc-400">
                 <Link
@@ -32,16 +36,22 @@ export default function RootLayout({
                   Analyze Item
                 </Link>
                 <Link
-                  href="/#features"
+                  href="/dashboard"
                   className="hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
                 >
-                  Architecture
+                  Dashboard
                 </Link>
                 <Link
-                  href="/#setup"
+                  href="/#how-it-works"
                   className="hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
                 >
-                  Setup
+                  How It Works
+                </Link>
+                <Link
+                  href="/#pathways"
+                  className="hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
+                >
+                  6 Pathways
                 </Link>
               </nav>
             </div>
