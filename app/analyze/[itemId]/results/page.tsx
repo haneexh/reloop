@@ -6,12 +6,16 @@ import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import {
   evaluateItem,
+  formatItemDisplayName,
   type DecisionResult,
   type RecommendedAction,
   type ItemCondition,
 } from "@/lib/decisionEngine";
 
 import { ResultsPageSkeleton } from "@/components/LoadingSkeleton";
+import { ProcessRail } from "@/components/ProcessRail";
+import { PpriMeter } from "@/components/PpriMeter";
+import { PathwayComparisonTable } from "@/components/PathwayComparisonTable";
 
 interface ItemRecord {
   id: string;
@@ -142,19 +146,19 @@ export default function ResultsPage() {
   if (error || !item || !decision) {
     return (
       <div className="mx-auto max-w-2xl space-y-6">
-        <div className="rounded-md border border-red-200 bg-red-50 p-6 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300 space-y-3">
+        <div className="rounded-sm border border-[#a3512b]/40 bg-[#fff2ed] p-6 text-xs text-[#a3512b] space-y-3">
           <div className="font-semibold text-sm">Assessment Not Available</div>
           <p>{error || "Unable to retrieve the requested item record."}</p>
           <div className="pt-2 flex gap-3">
             <Link
               href="/analyze"
-              className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900"
+              className="inline-flex items-center justify-center rounded-sm bg-[#2e7d57] px-4 py-2 text-xs font-semibold text-white hover:bg-[#246644]"
             >
-              Analyze an Item
+              Start New Intake
             </Link>
             <Link
               href="/"
-              className="inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white px-4 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+              className="inline-flex items-center justify-center rounded-sm border border-[#d8ddd7] bg-white px-4 py-2 text-xs font-medium text-[#151817] hover:bg-[#e9ede7]"
             >
               Return to Overview
             </Link>
@@ -167,8 +171,7 @@ export default function ResultsPage() {
   const primaryAction = recommendation?.recommended_action || decision.recommended_action;
   const rationale = recommendation?.rationale || decision.rationale;
   const confidencePct = Math.round((recommendation?.confidence ?? decision.confidence) * 100);
-  const alt1 = recommendation?.alt_action_1 || decision.alt_action_1;
-  const alt2 = recommendation?.alt_action_2 || decision.alt_action_2;
+  const itemDisplayName = formatItemDisplayName(item.brand, item.item_type);
 
   // Format numbers
   const formattedRepair = `₹${(item.repair_cost_est ?? decision.repair_cost_est).toLocaleString("en-IN")}`;
@@ -178,511 +181,216 @@ export default function ResultsPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-8">
-      {/* Top Navigation & Status Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-200 pb-4 dark:border-zinc-800">
+      {/* 4-Step Process Rail */}
+      <ProcessRail active={3} />
+
+      {/* Top Navigation & Title Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#d8ddd7] pb-4">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center rounded border border-zinc-200 bg-zinc-100 px-2 py-0.5 font-mono text-[11px] font-medium text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
-              PHASE 4 ACTIVE
-            </span>
-            <span className="text-xs text-zinc-400">&bull;</span>
-            <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
-              ID: {item.id.slice(0, 8)}...
-            </span>
+          <div className="flex items-center gap-2 font-mono text-xs text-[#6b746e]">
+            <Link href="/analyze" className="hover:text-[#151817] transition-colors">
+              &larr; Intake Assessment
+            </Link>
+            <span>|</span>
+            <span>RECORD: {item.id.slice(0, 8)}</span>
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50 mt-1">
-            Circularity Assessment & Lifecycle Routing
+          <h1 className="text-2xl font-bold font-display text-[#151817] mt-1">
+            Here is what makes the most sense next.
           </h1>
         </div>
 
         <div className="flex items-center gap-2">
           <Link
             href="/analyze"
-            className="inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="inline-flex items-center justify-center rounded-sm border border-[#d8ddd7] bg-white px-3.5 py-1.5 text-xs font-medium text-[#151817] transition-colors hover:bg-[#e9ede7]"
           >
             + New Intake
           </Link>
           <button
             onClick={() => window.print()}
             type="button"
-            className="inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="inline-flex items-center justify-center rounded-sm border border-[#d8ddd7] bg-white px-3.5 py-1.5 text-xs font-medium text-[#151817] transition-colors hover:bg-[#e9ede7]"
           >
-            Print Summary
+            Print Spec Sheet
           </button>
         </div>
       </div>
 
       {/* ======================================================================= */}
-      {/* SECTION 1: ITEM OVERVIEW & CORE METRICS BAR */}
+      {/* SECTION 1: PRIMARY RECOMMENDATION & CONFIRMED ITEM OVERVIEW */}
       {/* ======================================================================= */}
-      <section className="rounded-md border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-center">
-          {/* Photo Preview / Badge */}
-          <div className="flex items-center gap-4 md:col-span-2">
-            <div className="h-24 w-24 flex-shrink-0 overflow-hidden rounded-md border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 flex items-center justify-center">
+      <section className="grid grid-cols-1 lg:grid-cols-12 gap-px bg-[#d8ddd7] border border-[#d8ddd7] rounded-sm overflow-hidden">
+        {/* Left Side: Recommended Action Hero */}
+        <div className="lg:col-span-7 bg-[#173d2c] text-white p-6 sm:p-8 flex flex-col justify-between space-y-6">
+          <div className="space-y-3">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[#9ec4ad]">
+              Recommended Circular Pathway
+            </span>
+            <h2 className="text-3xl sm:text-4xl font-bold font-display text-white leading-tight">
+              {ACTION_LABELS[primaryAction] || primaryAction} this {itemDisplayName}.
+            </h2>
+            <p className="text-xs text-white/80 leading-relaxed pt-1">
+              {rationale}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-end justify-between gap-4 border-t border-white/20 pt-4">
+            <div>
+              <span className="text-[10px] font-mono uppercase tracking-widest text-[#9ec4ad] block">
+                Model Confidence
+              </span>
+              <div className="text-2xl font-bold font-display text-white">
+                {confidencePct}%
+              </div>
+            </div>
+
+            <Link
+              href={`/analyze/${itemId}/destinations`}
+              className="inline-flex items-center justify-center rounded-sm bg-white px-4 py-2.5 text-xs font-bold text-[#151817] transition-transform hover:-translate-y-0.5 hover:bg-[#f4f5f1]"
+            >
+              Find a Destination Partner &rarr;
+            </Link>
+          </div>
+        </div>
+
+        {/* Right Side: Confirmed Hardware Specs & Key KPIs */}
+        <div className="lg:col-span-5 bg-white p-6 flex flex-col justify-between space-y-5">
+          <div className="flex items-start gap-4">
+            {/* Real Uploaded Photo Thumbnail */}
+            <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-sm border border-[#d8ddd7] bg-[#f4f5f1] flex items-center justify-center">
               {item.image_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={item.image_url}
                   alt={item.item_type || "Analyzed item"}
-                  className="h-full w-full object-contain"
+                  className="h-full w-full object-cover"
+                  onError={(e) => {
+                    e.currentTarget.src = "https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?auto=format&fit=crop&w=400&q=80";
+                  }}
                 />
               ) : (
-                <div className="text-[11px] font-mono text-zinc-400 text-center p-2">
+                <div className="text-[10px] font-mono text-[#6b746e] text-center p-1">
                   No Photo
                 </div>
               )}
             </div>
 
             <div className="space-y-1">
-              <div className="text-xs font-mono uppercase tracking-wider text-zinc-400">
-                {item.brand || "Unspecified Brand"}
-              </div>
-              <h2 className="text-lg font-semibold capitalize text-zinc-900 dark:text-zinc-100">
-                {item.item_type}
-              </h2>
-              <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
-                <span className="inline-flex items-center rounded border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] font-medium capitalize text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300">
-                  Condition: {(item.condition || "functional").replace("_", " ")}
-                </span>
-                <span className="inline-flex items-center rounded border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] font-mono text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
-                  Age: {item.estimated_age_years !== null ? `${item.estimated_age_years} yrs` : "Unknown"}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Quick Stat: Financial Baseline */}
-          <div className="rounded-md border border-zinc-100 bg-zinc-50/80 p-3.5 dark:border-zinc-800 dark:bg-zinc-950/60 space-y-1">
-            <div className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
-              Fair Secondary Value
-            </div>
-            <div className="text-xl font-bold font-mono text-zinc-900 dark:text-zinc-100">
-              {formattedResale}
-            </div>
-            <div className="text-[11px] text-zinc-500 font-mono">
-              Est. Repair: {formattedRepair}
-            </div>
-          </div>
-
-          {/* Quick Stat: Environmental Baseline */}
-          <div className="rounded-md border border-zinc-100 bg-zinc-50/80 p-3.5 dark:border-zinc-800 dark:bg-zinc-950/60 space-y-1">
-            <div className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
-              Avoided Carbon & Waste
-            </div>
-            <div className="text-xl font-bold font-mono text-zinc-900 dark:text-zinc-100">
-              {co2eSaved} kg CO₂e
-            </div>
-            <div className="text-[11px] text-zinc-500 font-mono">
-              Diverts: {wasteDiverted} kg e-waste
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ======================================================================= */}
-      {/* SECTION 2: PRIMARY RECOMMENDATION & RATIONALE */}
-      {/* ======================================================================= */}
-      <section className="rounded-md border-2 border-zinc-900 bg-zinc-900 text-white p-6 dark:border-zinc-100 dark:bg-zinc-950 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 pb-3 dark:border-zinc-800">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono uppercase tracking-wider text-zinc-400">
-              Primary Lifecycle Recommendation
-            </span>
-          </div>
-          <div className="inline-flex items-center gap-1.5 rounded border border-zinc-700 bg-zinc-800/80 px-2.5 py-0.5 font-mono text-xs text-zinc-200">
-            <span>Confidence:</span>
-            <span className="font-semibold text-white">{confidencePct}%</span>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
-          <div className="md:col-span-2 space-y-2">
-            <div className="flex items-center gap-3">
-              <span className="rounded-md bg-white px-3 py-1 text-sm font-bold uppercase tracking-wider text-zinc-950 dark:bg-zinc-100 dark:text-zinc-900">
-                {ACTION_LABELS[primaryAction] || primaryAction}
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#6b746e]">
+                Confirmed Information
               </span>
-              <span className="text-xs text-zinc-400">
-                Ranked #1 of 6 circular routes
-              </span>
-            </div>
-            <p className="text-sm leading-relaxed text-zinc-200 font-normal pt-1">
-              {rationale}
-            </p>
-          </div>
-
-          {/* Alternative Routes Box */}
-          <div className="rounded-md border border-zinc-800 bg-zinc-800/50 p-3.5 space-y-2 text-xs">
-            <div className="font-mono text-[11px] uppercase tracking-wider text-zinc-400">
-              Secondary Alternatives
-            </div>
-            <div className="space-y-1.5">
-              {alt1 && (
-                <div className="flex items-center justify-between rounded border border-zinc-700/60 bg-zinc-900/60 px-2.5 py-1.5">
-                  <span className="text-zinc-300 font-medium capitalize">
-                    {ACTION_LABELS[alt1 as RecommendedAction] || alt1}
-                  </span>
-                  <span className="font-mono text-[10px] text-zinc-400">Option 2</span>
-                </div>
-              )}
-              {alt2 && (
-                <div className="flex items-center justify-between rounded border border-zinc-700/60 bg-zinc-900/60 px-2.5 py-1.5">
-                  <span className="text-zinc-300 font-medium capitalize">
-                    {ACTION_LABELS[alt2 as RecommendedAction] || alt2}
-                  </span>
-                  <span className="font-mono text-[10px] text-zinc-400">Option 3</span>
-                </div>
-              )}
-              {!alt1 && !alt2 && (
-                <div className="text-zinc-400 italic">No alternative routes viable.</div>
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ======================================================================= */}
-      {/* SECTION 3: POST-PURCHASE REPAIRABILITY INDEX (PP-RI) & WEIGHTS */}
-      {/* ======================================================================= */}
-      <section className="rounded-md border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900 space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-100 pb-4 dark:border-zinc-800">
-          <div>
-            <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-              Post-Purchase Repairability Index (PP-RI)
-            </h3>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              Deterministic 0–10 score evaluating economic feasibility, hardware condition, and component longevity.
-            </p>
-          </div>
-          <div className="inline-flex items-center rounded border border-zinc-200 bg-zinc-50 px-2.5 py-1 font-mono text-xs font-semibold text-zinc-800 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
-            {decision.ppri_level}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
-          {/* PP-RI Gauge Block */}
-          <div className="flex flex-col items-center justify-center rounded-md border border-zinc-100 bg-zinc-50 p-6 dark:border-zinc-800 dark:bg-zinc-950 space-y-2 text-center">
-            <div className="text-xs font-mono uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-              PP-RI Composite Score
-            </div>
-            <div className="flex items-baseline gap-1 font-mono">
-              <span className="text-4xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-                {decision.ppri_score.toFixed(1)}
-              </span>
-              <span className="text-lg font-medium text-zinc-400">/ 10</span>
-            </div>
-
-            {/* Score Bar */}
-            <div className="w-full bg-zinc-200 h-2 rounded-full overflow-hidden dark:bg-zinc-800 mt-2">
-              <div
-                className="bg-zinc-900 dark:bg-zinc-100 h-full rounded-full transition-all duration-500"
-                style={{ width: `${Math.min(100, Math.max(5, decision.ppri_score * 10))}%` }}
-              />
-            </div>
-
-            <div className="flex justify-between w-full text-[10px] font-mono text-zinc-400 pt-1">
-              <span>0.0 (Scrap)</span>
-              <span>5.0 (Moderate)</span>
-              <span>10.0 (Optimal)</span>
-            </div>
-          </div>
-
-          {/* Three Weight Breakdown Components */}
-          <div className="md:col-span-2 space-y-3.5">
-            <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-              Weight Component Breakdown (Sums to 100%)
-            </div>
-
-            {/* Component 1: Cost Ratio */}
-            <div className="rounded-md border border-zinc-100 bg-zinc-50/60 p-3 dark:border-zinc-800 dark:bg-zinc-950/40 space-y-1.5">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-medium text-zinc-900 dark:text-zinc-100">
-                  1. Economic Feasibility Ratio
-                </span>
-                <div className="flex items-center gap-2 font-mono text-[11px]">
-                  <span className="text-zinc-500">Weight: 45%</span>
-                  <span className="font-semibold text-zinc-900 dark:text-zinc-100">
-                    {decision.breakdown.cost_ratio_score.toFixed(1)} / 10
-                  </span>
-                </div>
-              </div>
-              <div className="w-full bg-zinc-200 h-1.5 rounded-full overflow-hidden dark:bg-zinc-800">
-                <div
-                  className="bg-zinc-700 dark:bg-zinc-300 h-full rounded-full"
-                  style={{ width: `${decision.breakdown.cost_ratio_score * 10}%` }}
-                />
-              </div>
-              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                Repair cost ({formattedRepair}) is {Math.round(decision.breakdown.repair_cost_ratio * 100)}% of fair market value ({formattedResale}).
-              </p>
-            </div>
-
-            {/* Component 2: Condition */}
-            <div className="rounded-md border border-zinc-100 bg-zinc-50/60 p-3 dark:border-zinc-800 dark:bg-zinc-950/40 space-y-1.5">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-medium text-zinc-900 dark:text-zinc-100">
-                  2. Physical & Hardware Condition
-                </span>
-                <div className="flex items-center gap-2 font-mono text-[11px]">
-                  <span className="text-zinc-500">Weight: 35%</span>
-                  <span className="font-semibold text-zinc-900 dark:text-zinc-100">
-                    {decision.breakdown.condition_score.toFixed(1)} / 10
-                  </span>
-                </div>
-              </div>
-              <div className="w-full bg-zinc-200 h-1.5 rounded-full overflow-hidden dark:bg-zinc-800">
-                <div
-                  className="bg-zinc-700 dark:bg-zinc-300 h-full rounded-full"
-                  style={{ width: `${decision.breakdown.condition_score * 10}%` }}
-                />
-              </div>
-              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 capitalize">
-                Assessed in {(item.condition || "functional").replace("_", " ")} status.
-              </p>
-            </div>
-
-            {/* Component 3: Age */}
-            <div className="rounded-md border border-zinc-100 bg-zinc-50/60 p-3 dark:border-zinc-800 dark:bg-zinc-950/40 space-y-1.5">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-medium text-zinc-900 dark:text-zinc-100">
-                  3. Lifecycle Age & Longevity
-                </span>
-                <div className="flex items-center gap-2 font-mono text-[11px]">
-                  <span className="text-zinc-500">Weight: 20%</span>
-                  <span className="font-semibold text-zinc-900 dark:text-zinc-100">
-                    {decision.breakdown.age_score.toFixed(1)} / 10
-                  </span>
-                </div>
-              </div>
-              <div className="w-full bg-zinc-200 h-1.5 rounded-full overflow-hidden dark:bg-zinc-800">
-                <div
-                  className="bg-zinc-700 dark:bg-zinc-300 h-full rounded-full"
-                  style={{ width: `${decision.breakdown.age_score * 10}%` }}
-                />
-              </div>
-              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                Estimated hardware age: {item.estimated_age_years !== null ? `${item.estimated_age_years} years` : "3.0 years baseline"}.
+              <h3 className="text-base font-bold font-display text-[#151817]">
+                {itemDisplayName}
+              </h3>
+              <p className="text-[11px] text-[#6b746e]">
+                {item.estimated_age_years !== null ? `${item.estimated_age_years} yrs old` : "3.0 yrs baseline"} · Condition: {(item.condition || "functional").replace("_", " ")}
               </p>
             </div>
           </div>
-        </div>
-      </section>
 
-      {/* ======================================================================= */}
-      {/* SECTION 4: SIX-PATHWAY COMPREHENSIVE COMPARISON */}
-      {/* ======================================================================= */}
-      <section className="space-y-4">
-        <div>
-          <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-            Six-Pathway Circular Lifecycle Comparison
-          </h3>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            Evaluating all 6 circular alternatives side-by-side with economic return and environmental impact.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {decision.pathways.map((pathway) => {
-            const isOptimal = pathway.action === primaryAction;
-            return (
-              <div
-                key={pathway.action}
-                className={`rounded-md border p-4.5 space-y-3 transition-colors flex flex-col justify-between ${
-                  isOptimal
-                    ? "border-zinc-900 bg-white ring-1 ring-zinc-900 dark:border-zinc-100 dark:bg-zinc-900 dark:ring-zinc-100"
-                    : "border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
-                }`}
-              >
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-sm text-zinc-900 dark:text-zinc-100">
-                        {pathway.title}
-                      </span>
-                      {isOptimal && (
-                        <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white dark:bg-zinc-100 dark:text-zinc-900">
-                          Recommended
-                        </span>
-                      )}
-                    </div>
-                    <span
-                      className={`font-mono text-[11px] px-2 py-0.5 rounded border capitalize ${
-                        pathway.suitability === "optimal"
-                          ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
-                          : pathway.suitability === "viable"
-                            ? "border-zinc-300 bg-zinc-100 text-zinc-800 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
-                            : "border-zinc-200 bg-zinc-50 text-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-500"
-                      }`}
-                    >
-                      {pathway.suitability.replace("_", " ")}
-                    </span>
-                  </div>
-
-                  <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-normal">
-                    {pathway.description}
-                  </p>
-                </div>
-
-                <div className="space-y-2 pt-2 border-t border-zinc-100 dark:border-zinc-800 text-xs">
-                  {/* Economic impact */}
-                  <div className="rounded bg-zinc-50 p-2 dark:bg-zinc-950 space-y-0.5">
-                    <div className="text-[10px] font-mono text-zinc-400 uppercase">
-                      Financial Metric
-                    </div>
-                    <div className="font-semibold text-zinc-900 dark:text-zinc-100">
-                      {pathway.economicHeadline}
-                    </div>
-                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-tight">
-                      {pathway.economicDetail}
-                    </p>
-                  </div>
-
-                  {/* Environmental impact */}
-                  <div className="rounded bg-zinc-50 p-2 dark:bg-zinc-950 space-y-0.5">
-                    <div className="text-[10px] font-mono text-zinc-400 uppercase">
-                      Carbon & Material
-                    </div>
-                    <div className="font-semibold text-zinc-900 dark:text-zinc-100">
-                      {pathway.environmentalHeadline}
-                    </div>
-                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-tight">
-                      {pathway.environmentalDetail}
-                    </p>
-                  </div>
-
-                  {/* Key advantage */}
-                  <div className="text-[11px] text-zinc-600 dark:text-zinc-400 pt-1">
-                    <span className="font-medium text-zinc-900 dark:text-zinc-200">Key Tradeoff: </span>
-                    {pathway.tradeoff}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* ======================================================================= */}
-      {/* SECTION 5: SUSTAINABILITY VS ECONOMICS SIDE-BY-SIDE */}
-      {/* ======================================================================= */}
-      <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Economic Balance Card */}
-        <div className="rounded-md border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-3">
-          <div className="border-b border-zinc-100 pb-2.5 dark:border-zinc-800">
-            <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              Economic Evaluation
-            </h4>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Secondary market liquidity & recovery metrics
-            </p>
-          </div>
-
-          <div className="space-y-2 text-xs">
-            <div className="flex justify-between py-1 border-b border-zinc-50 dark:border-zinc-800/60">
-              <span className="text-zinc-600 dark:text-zinc-400">Fair Secondary Market Value</span>
-              <span className="font-mono font-semibold text-zinc-900 dark:text-zinc-100">
-                {formattedResale}
-              </span>
-            </div>
-            <div className="flex justify-between py-1 border-b border-zinc-50 dark:border-zinc-800/60">
-              <span className="text-zinc-600 dark:text-zinc-400">Estimated Repair Cost</span>
-              <span className="font-mono font-semibold text-zinc-900 dark:text-zinc-100">
+          {/* 4 Stats Grid */}
+          <div className="grid grid-cols-2 gap-2 border-t border-[#d8ddd7] pt-4">
+            <div className="rounded-sm bg-[#f4f5f1] p-2.5">
+              <span className="text-[10px] text-[#6b746e] block">Estimated Repair</span>
+              <strong className="font-mono text-sm text-[#151817] font-bold">
                 {formattedRepair}
-              </span>
+              </strong>
             </div>
-            <div className="flex justify-between py-1 border-b border-zinc-50 dark:border-zinc-800/60">
-              <span className="text-zinc-600 dark:text-zinc-400">Repair-to-Value Ratio</span>
-              <span className="font-mono font-semibold text-zinc-900 dark:text-zinc-100">
-                {Math.round(decision.breakdown.repair_cost_ratio * 100)}%
-              </span>
-            </div>
-            <div className="flex justify-between py-1 pt-2 font-medium">
-              <span className="text-zinc-900 dark:text-zinc-100">Financial Recommendation</span>
-              <span className="font-mono text-zinc-900 dark:text-zinc-100 uppercase">
-                {primaryAction}
-              </span>
-            </div>
-          </div>
-        </div>
 
-        {/* Sustainability Impact Card */}
-        <div className="rounded-md border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-3">
-          <div className="border-b border-zinc-100 pb-2.5 dark:border-zinc-800">
-            <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              Environmental Footprint
-            </h4>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Avoided cradle-to-gate manufacturing emissions
-            </p>
-          </div>
-
-          <div className="space-y-2 text-xs">
-            <div className="flex justify-between py-1 border-b border-zinc-50 dark:border-zinc-800/60">
-              <span className="text-zinc-600 dark:text-zinc-400">Avoided Embodied Emissions</span>
-              <span className="font-mono font-semibold text-zinc-900 dark:text-zinc-100">
-                {co2eSaved} kg CO₂e
-              </span>
+            <div className="rounded-sm bg-[#f4f5f1] p-2.5">
+              <span className="text-[10px] text-[#6b746e] block">Estimated Resale</span>
+              <strong className="font-mono text-sm text-[#151817] font-bold">
+                {formattedResale}
+              </strong>
             </div>
-            <div className="flex justify-between py-1 border-b border-zinc-50 dark:border-zinc-800/60">
-              <span className="text-zinc-600 dark:text-zinc-400">Landfill Waste Diverted</span>
-              <span className="font-mono font-semibold text-zinc-900 dark:text-zinc-100">
+
+            <div className="rounded-sm bg-[#f4f5f1] p-2.5">
+              <span className="text-[10px] text-[#6b746e] block">CO2e Avoided</span>
+              <strong className="font-mono text-sm text-[#2e7d57] font-bold">
+                {co2eSaved} kg
+              </strong>
+            </div>
+
+            <div className="rounded-sm bg-[#f4f5f1] p-2.5">
+              <span className="text-[10px] text-[#6b746e] block">Landfill Diverted</span>
+              <strong className="font-mono text-sm text-[#151817] font-bold">
                 {wasteDiverted} kg
-              </span>
-            </div>
-            <div className="flex justify-between py-1 border-b border-zinc-50 dark:border-zinc-800/60">
-              <span className="text-zinc-600 dark:text-zinc-400">Circular Pathway Efficiency</span>
-              <span className="font-mono font-semibold text-zinc-900 dark:text-zinc-100">
-                {primaryAction === "recycle" ? "Material Recovery" : "100% Hardware Retention"}
-              </span>
-            </div>
-            <div className="flex justify-between py-1 pt-2 font-medium">
-              <span className="text-zinc-900 dark:text-zinc-100">Ecological Verdict</span>
-              <span className="font-mono text-zinc-900 dark:text-zinc-100">
-                Positive Net Delta
-              </span>
+              </strong>
             </div>
           </div>
         </div>
       </section>
 
       {/* ======================================================================= */}
-      {/* SECTION 6: DESTINATION PARTNERS ROUTING (PHASE 5) */}
+      {/* SECTION 2: PP-RI GAUGE & 6-PATHWAY COMPARISON MATRIX */}
       {/* ======================================================================= */}
-      <section className="rounded-md border border-zinc-900 bg-zinc-900 text-white p-6 dark:border-zinc-100 dark:bg-zinc-950 space-y-4">
-        <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-          <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-emerald-400"></span>
-            <span className="font-mono text-xs uppercase tracking-wider text-zinc-300 font-semibold">
-              Phase 5 Active: Local Destination Mapping
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        {/* Left Column: 6-Pathway Tabular Comparison Table */}
+        <div className="lg:col-span-8 space-y-6">
+          <PathwayComparisonTable comparisons={decision.pathways} />
+        </div>
+
+        {/* Right Column: PP-RI Semi-Circular Gauge Meter */}
+        <div className="lg:col-span-4 space-y-6">
+          <PpriMeter score={decision.ppri_score} level={decision.ppri_level} />
+
+          <div className="rounded-sm border border-[#d8ddd7] bg-white p-5 space-y-3">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[#2e7d57] block">
+              Why this result
             </span>
+            <h4 className="text-sm font-bold font-display text-[#151817]">
+              Deterministic, not mysterious.
+            </h4>
+            <p className="text-xs text-[#6b746e] leading-relaxed">
+              The PP-RI score weighs repair ratio (45%), physical wear (35%), and hardware age (20%). The circular rules compare viability across all six pathways before proposing the optimal route.
+            </p>
+            <div className="pt-1">
+              <Link
+                href="/analyze"
+                className="text-xs font-semibold text-[#2e7d57] hover:underline"
+              >
+                Assess another item &rarr;
+              </Link>
+            </div>
           </div>
-          <span className="font-mono text-[11px] text-zinc-400">
-            Bengaluru Partner Network
+        </div>
+      </div>
+
+      {/* ======================================================================= */}
+      {/* SECTION 3: PHYSICAL FULFILLMENT BANNER */}
+      {/* ======================================================================= */}
+      <section className="rounded-sm border border-[#d8ddd7] bg-[#e9ede7] p-6 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#d8ddd7] pb-3">
+          <div className="font-display text-sm uppercase tracking-wider text-[#151817] font-bold">
+            Fulfillment &amp; Destination Routing
+          </div>
+          <span className="font-mono text-[11px] text-[#6b746e]">
+            40 Verified Indian Nodes (Hyderabad + Bengaluru)
           </span>
         </div>
 
-        <p className="text-xs text-zinc-300 leading-relaxed">
-          Connect directly with verified local repair technicians, authorized electronics refurbishers, registered community NGOs, certified e-waste processors, and verified informal kabadiwala collection points sorted by straight-line distance from your location.
+        <p className="text-xs text-[#151817] leading-relaxed">
+          Route this {itemDisplayName} to verified local repair clinics, authorized electronics refurbishers, registered community NGOs, certified recyclers, or decentralized informal scrap collectors sorted by straight-line distance.
         </p>
 
         <div className="flex flex-wrap items-center gap-3 pt-1">
           <Link
             href={`/analyze/${itemId}/destinations`}
-            className="inline-flex items-center justify-center rounded-md bg-white px-5 py-2 text-xs font-semibold text-zinc-950 transition-colors hover:bg-zinc-100 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-zinc-200"
+            className="inline-flex items-center justify-center rounded-sm bg-[#2e7d57] px-5 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-[#246644]"
           >
             Find Destination Partners on Map &rarr;
           </Link>
           <Link
             href="/analyze"
-            className="inline-flex items-center justify-center rounded-md border border-zinc-700 bg-zinc-800/80 px-4 py-2 text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+            className="inline-flex items-center justify-center rounded-sm border border-[#d8ddd7] bg-white px-4 py-2.5 text-xs font-medium text-[#151817] transition-colors hover:bg-[#f4f5f1]"
           >
             Analyze Another Item
           </Link>
           <Link
-            href="/"
-            className="inline-flex items-center justify-center rounded-md border border-zinc-700 bg-zinc-800/80 px-4 py-2 text-xs font-medium text-zinc-200 transition-colors hover:bg-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+            href="/dashboard"
+            className="inline-flex items-center justify-center rounded-sm border border-[#d8ddd7] bg-white px-4 py-2.5 text-xs font-medium text-[#151817] transition-colors hover:bg-[#f4f5f1]"
           >
-            Back to Overview
+            View Fleet Dashboard
           </Link>
         </div>
       </section>

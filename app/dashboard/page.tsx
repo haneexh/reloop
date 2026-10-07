@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { resolveCategoryBaseline, type RecommendedAction } from "@/lib/decisionEngine";
+import { resolveCategoryBaseline, formatItemDisplayName, type RecommendedAction } from "@/lib/decisionEngine";
 import { DashboardPageSkeleton } from "@/components/LoadingSkeleton";
 
 interface ItemWithRecommendation {
@@ -26,36 +26,42 @@ interface ItemWithRecommendation {
   }>;
 }
 
-const ACTION_COLORS: Record<RecommendedAction, { bg: string; text: string; bar: string }> = {
+const ACTION_COLORS: Record<RecommendedAction, { bg: string; text: string; border: string; bar: string }> = {
   repair: {
-    bg: "bg-blue-50 dark:bg-blue-950/40",
-    text: "text-blue-700 dark:text-blue-300",
-    bar: "bg-blue-600",
+    bg: "bg-[#e6f2e8]",
+    text: "text-[#2e7d57]",
+    border: "border-[#2e7d57]/30",
+    bar: "bg-[#2e7d57]",
   },
   reuse: {
-    bg: "bg-teal-50 dark:bg-teal-950/40",
-    text: "text-teal-700 dark:text-teal-300",
-    bar: "bg-teal-600",
+    bg: "bg-[#f4f5f1]",
+    text: "text-[#151817]",
+    border: "border-[#d8ddd7]",
+    bar: "bg-[#151817]",
   },
   donate: {
-    bg: "bg-emerald-50 dark:bg-emerald-950/40",
-    text: "text-emerald-700 dark:text-emerald-300",
-    bar: "bg-emerald-600",
+    bg: "bg-[#e6f2e8]",
+    text: "text-[#173d2c]",
+    border: "border-[#173d2c]/30",
+    bar: "bg-[#173d2c]",
   },
   resell: {
-    bg: "bg-indigo-50 dark:bg-indigo-950/40",
-    text: "text-indigo-700 dark:text-indigo-300",
-    bar: "bg-indigo-600",
+    bg: "bg-[#f4f5f1]",
+    text: "text-[#151817]",
+    border: "border-[#6b746e]",
+    bar: "bg-[#4B5047]",
   },
   refurbish: {
-    bg: "bg-purple-50 dark:bg-purple-950/40",
-    text: "text-purple-700 dark:text-purple-300",
-    bar: "bg-purple-600",
+    bg: "bg-[#e6f2e8]",
+    text: "text-[#2e7d57]",
+    border: "border-[#2e7d57]/30",
+    bar: "bg-[#2e7d57]",
   },
   recycle: {
-    bg: "bg-amber-50 dark:bg-amber-950/40",
-    text: "text-amber-700 dark:text-amber-300",
-    bar: "bg-amber-600",
+    bg: "bg-[#FDF2EC]",
+    text: "text-[#a3512b]",
+    border: "border-[#a3512b]/30",
+    bar: "bg-[#a3512b]",
   },
 };
 
@@ -114,7 +120,6 @@ export default function DashboardPage() {
     const resaleVal = item.resale_value_est ? Number(item.resale_value_est) : 0;
     const repairCost = item.repair_cost_est ? Number(item.repair_cost_est) : 0;
     const baseline = resolveCategoryBaseline(item.item_type || "other");
-    // Economic value preserved = Secondary market value + Avoided new purchase replacement saving (new retail minus repair cost)
     const avoidedReplacement = Math.max(0, baseline.new_price_est - repairCost);
     return acc + resaleVal + avoidedReplacement;
   }, 0);
@@ -134,7 +139,6 @@ export default function DashboardPage() {
     if (primaryRec && primaryRec in actionCounts) {
       actionCounts[primaryRec] += 1;
     } else {
-      // If no recommendation record, default to reuse or recycle based on condition
       if (item.condition === "severely_damaged") {
         actionCounts.recycle += 1;
       } else {
@@ -154,7 +158,7 @@ export default function DashboardPage() {
 
   const maxActionCount = Math.max(1, ...Object.values(actionCounts));
 
-  // Live Community Impact Calculations (Past 7 days & All-time collective repair)
+  // Live Community Impact Calculations (Past 7 days)
   const now = new Date().getTime();
   const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
   const itemsThisWeek = items.filter(
@@ -169,34 +173,21 @@ export default function DashboardPage() {
     0
   );
 
-  const totalRepairedItems = items.filter(
-    (item) => item.recommendations?.[0]?.recommended_action === "repair"
-  );
-  const totalRepairedCount = totalRepairedItems.length;
-  const totalRepairedCo2e = totalRepairedItems.reduce(
-    (acc, item) => acc + (item.co2e_saved_est ? Number(item.co2e_saved_est) : 0),
-    0
-  );
-
   return (
     <div className="mx-auto max-w-5xl space-y-8">
       {/* Top Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-200 pb-4 dark:border-zinc-800">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#d8ddd7] pb-4">
+        <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <span className="inline-flex items-center rounded border border-zinc-200 bg-zinc-100 px-2 py-0.5 font-mono text-[11px] font-medium text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
-              AGGREGATE IMPACT
-            </span>
-            <span className="text-xs text-zinc-400">&bull;</span>
-            <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
-              LIVE DATABASE METRICS
+            <span className="font-mono text-xs text-[#6b746e]">
+              DATABASE AUDIT / LIVE AGGREGATE
             </span>
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50 mt-1">
+          <h1 className="text-2xl font-bold tracking-tight text-[#151817]">
             Circularity Impact Dashboard
           </h1>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-            Real-time aggregate carbon avoidance, landfill mass diversion, and economic value preserved across all intake evaluations.
+          <p className="text-xs text-[#6b746e]">
+            Computed live from items and recommendations recorded in Supabase.
           </p>
         </div>
 
@@ -205,7 +196,7 @@ export default function DashboardPage() {
             type="button"
             onClick={() => fetchDashboardData()}
             disabled={loading}
-            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="inline-flex items-center gap-1.5 rounded-sm border border-[#d8ddd7] bg-white px-3 py-1.5 text-xs font-medium text-[#151817] transition-colors hover:bg-[#e9ede7] disabled:opacity-50"
           >
             <svg
               className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
@@ -224,17 +215,17 @@ export default function DashboardPage() {
           </button>
           <Link
             href="/analyze"
-            className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+            className="inline-flex items-center justify-center rounded-sm bg-[#2e7d57] px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#246644]"
           >
-            + New Intake
+            Analyze an item
           </Link>
         </div>
       </div>
 
       {/* Error Alert */}
       {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-4 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
-          <div className="font-semibold mb-0.5">Database Query Error</div>
+        <div className="rounded-sm border border-[#a3512b] bg-white p-4 text-xs text-[#151817]">
+          <div className="font-semibold text-[#a3512b] mb-0.5">Database Query Error</div>
           <div>{error}</div>
         </div>
       )}
@@ -243,165 +234,134 @@ export default function DashboardPage() {
       {loading ? (
         <DashboardPageSkeleton />
       ) : totalItems === 0 ? (
-        /* Empty State: True zero state when no rows exist */
-        <div className="rounded-md border border-dashed border-zinc-300 bg-zinc-50 p-12 text-center dark:border-zinc-800 dark:bg-zinc-950 space-y-4">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-zinc-300 bg-white text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
-            <svg
-              className="h-6 w-6"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={1.75}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-              />
-            </svg>
-          </div>
-
+        /* Empty State */
+        <div className="rounded-sm border border-dashed border-[#d8ddd7] bg-white p-12 text-center space-y-4">
           <div className="space-y-1 max-w-sm mx-auto">
-            <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-              No Items Recorded Yet
+            <h2 className="text-base font-semibold text-[#151817]">
+              No items recorded yet
             </h2>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
-              The aggregate impact dashboard computes live metrics from actual database rows. Analyze your first item to begin tracking avoided carbon emissions, diverted landfill waste, and preserved economic value.
+            <p className="text-xs text-[#6b746e] leading-relaxed">
+              This dashboard computes aggregate metrics directly from database rows. Analyze an item to begin tracking avoided carbon emissions, diverted landfill waste, and preserved economic value.
             </p>
           </div>
 
           <div className="pt-2">
             <Link
               href="/analyze"
-              className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-5 py-2 text-xs font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              className="inline-flex items-center justify-center rounded-sm bg-[#2e7d57] px-5 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#246644]"
             >
-              Analyze Your First Item &rarr;
+              Analyze an item &rarr;
             </Link>
           </div>
         </div>
       ) : (
-        /* ===================================================================== */
-        /* METRICS & BREAKDOWN DISPLAY */
-        /* ===================================================================== */
+        /* Metrics Display */
         <div className="space-y-8">
-          {/* Lightweight Community Impact Widget */}
-          <div className="rounded-md border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-800 dark:bg-zinc-900/60">
+          {/* Community Pulse Banner */}
+          <div className="rounded-sm border border-[#d8ddd7] bg-white p-5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <span className="font-mono text-xs font-semibold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
-                    Community Circularity Pulse
-                  </span>
-                  <span className="text-zinc-400">&bull;</span>
-                  <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                    Past 7 Days
+                  <span className="font-mono text-xs font-semibold uppercase tracking-wider text-[#2e7d57]">
+                    COMMUNITY REPAIR PULSE: 7 DAYS
                   </span>
                 </div>
-                <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                <p className="text-sm font-medium text-[#151817]">
                   This community has repaired{" "}
-                  <span className="font-mono font-bold text-zinc-950 dark:text-white">
+                  <span className="font-mono font-bold">
                     {repairedThisWeekCount} {repairedThisWeekCount === 1 ? "device" : "devices"}
                   </span>{" "}
-                  this week &rarr;{" "}
-                  <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                    {co2eSavedThisWeek.toFixed(1)} kg CO₂e
+                  this week :{" "}
+                  <span className="font-mono font-bold text-[#2e7d57]">
+                    {co2eSavedThisWeek.toFixed(1)} kg CO2e
                   </span>{" "}
                   avoided
                 </p>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  {repairedThisWeekCount > 0
-                    ? `Live aggregate data from all intake submissions. Direct hardware manufacturing carbon avoided.`
-                    : `All-time community repair routing: ${totalRepairedCount} devices (${totalRepairedCo2e.toFixed(1)} kg CO₂e avoided). Submit an item to boost this week's community repair count.`}
+                <p className="text-xs text-[#6b746e]">
+                  Direct manufacturing emissions avoided by extending device lifespans through verified repair pathways.
                 </p>
               </div>
 
               <div className="flex items-center gap-3 shrink-0">
-                <div className="rounded border border-zinc-200 bg-white px-3 py-2 text-right dark:border-zinc-800 dark:bg-zinc-950">
-                  <div className="text-[10px] font-mono text-zinc-400 uppercase">Weekly Repair Rate</div>
-                  <div className="font-mono text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                <div className="rounded-sm border border-[#d8ddd7] bg-[#f4f5f1] px-3 py-2 text-right">
+                  <div className="text-[10px] font-mono text-[#6b746e] uppercase">Repair Ratio</div>
+                  <div className="font-mono text-sm font-bold text-[#151817]">
                     {itemsThisWeek.length > 0
                       ? `${Math.round((repairedThisWeekCount / itemsThisWeek.length) * 100)}%`
                       : "0%"}
                   </div>
                 </div>
-                <Link
-                  href="/analyze"
-                  className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-                >
-                  + Add Intake
-                </Link>
               </div>
             </div>
           </div>
 
           {/* Top 4 Impact KPI Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* KPI 1: Items Processed */}
-            <div className="rounded-md border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-1.5">
-              <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                Total Items Evaluated
+            {/* KPI 1 */}
+            <div className="rounded-sm border border-[#d8ddd7] bg-white p-5 space-y-1">
+              <div className="text-xs font-medium text-[#6b746e]">
+                Items Evaluated
               </div>
-              <div className="text-2xl font-bold font-mono text-zinc-900 dark:text-zinc-50">
+              <div className="text-2xl font-bold font-mono text-[#151817]">
                 {totalItems}
               </div>
-              <div className="text-[11px] text-zinc-400">
-                Direct circular intake submissions
+              <div className="text-[11px] font-mono text-[#6b746e]">
+                Logged intake records
               </div>
             </div>
 
-            {/* KPI 2: Total CO2e Avoided */}
-            <div className="rounded-md border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-1.5">
-              <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                Total CO₂e Avoided
+            {/* KPI 2 */}
+            <div className="rounded-sm border border-[#d8ddd7] bg-white p-5 space-y-1">
+              <div className="text-xs font-medium text-[#6b746e]">
+                CO2e Avoided
               </div>
-              <div className="text-2xl font-bold font-mono text-zinc-900 dark:text-zinc-50">
-                {totalCo2eAvoidedKg.toLocaleString()} <span className="text-sm font-normal text-zinc-400">kg</span>
+              <div className="text-2xl font-bold font-mono text-[#151817]">
+                {totalCo2eAvoidedKg.toLocaleString()} <span className="text-xs font-normal text-[#6b746e]">kg</span>
               </div>
-              <div className="text-[11px] text-zinc-400">
-                Avoided cradle-to-gate embodied carbon
+              <div className="text-[11px] font-mono text-[#6b746e]">
+                Embodied carbon retained
               </div>
             </div>
 
-            {/* KPI 3: Economic Value Preserved */}
-            <div className="rounded-md border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-1.5">
-              <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            {/* KPI 3 */}
+            <div className="rounded-sm border border-[#d8ddd7] bg-white p-5 space-y-1">
+              <div className="text-xs font-medium text-[#6b746e]">
                 Economic Value Preserved
               </div>
-              <div className="text-2xl font-bold font-mono text-zinc-900 dark:text-zinc-50">
+              <div className="text-2xl font-bold font-mono text-[#151817]">
                 ₹{Math.round(totalEconomicValuePreserved).toLocaleString("en-IN")}
               </div>
-              <div className="text-[11px] text-zinc-400">
-                Resale salvage + replacement savings
+              <div className="text-[11px] font-mono text-[#6b746e]">
+                Resale value + avoided replacement
               </div>
             </div>
 
-            {/* KPI 4: Landfill Waste Diverted */}
-            <div className="rounded-md border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-1.5">
-              <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                Landfill Waste Diverted
+            {/* KPI 4 */}
+            <div className="rounded-sm border border-[#d8ddd7] bg-white p-5 space-y-1">
+              <div className="text-xs font-medium text-[#6b746e]">
+                Landfill Mass Diverted
               </div>
-              <div className="text-2xl font-bold font-mono text-zinc-900 dark:text-zinc-50">
-                {totalWasteDivertedKg.toFixed(1)} <span className="text-sm font-normal text-zinc-400">kg</span>
+              <div className="text-2xl font-bold font-mono text-[#151817]">
+                {totalWasteDivertedKg.toFixed(1)} <span className="text-xs font-normal text-[#6b746e]">kg</span>
               </div>
-              <div className="text-[11px] text-zinc-400">
-                Direct physical mass diverted from dump
+              <div className="text-[11px] font-mono text-[#6b746e]">
+                E-waste diverted
               </div>
             </div>
           </div>
 
           {/* Recommendation Breakdown Chart */}
-          <div className="rounded-md border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900 space-y-5">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-100 pb-3 dark:border-zinc-800">
+          <div className="rounded-sm border border-[#d8ddd7] bg-white p-6 space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#d8ddd7] pb-3">
               <div>
-                <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                  Six-Pathway Recommendation Breakdown
+                <h2 className="text-sm font-semibold text-[#151817]">
+                  Pathway Recommendation Distribution
                 </h2>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Distribution of primary lifecycle routing across all processed hardware
+                <p className="text-xs text-[#6b746e]">
+                  Breakdown across the 6 circular lifecycle pathways
                 </p>
               </div>
-              <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
+              <span className="font-mono text-xs text-[#6b746e]">
                 {totalItems} total decision{totalItems === 1 ? "" : "s"}
               </span>
             </div>
@@ -416,23 +376,23 @@ export default function DashboardPage() {
                   <div key={pathway.action} className="space-y-1.5">
                     <div className="flex items-center justify-between text-xs">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                        <span className="font-medium text-[#151817]">
                           {pathway.label}
                         </span>
                         <span
-                          className={`rounded px-1.5 py-0.2 font-mono text-[10px] font-bold uppercase ${meta.bg} ${meta.text}`}
+                          className={`rounded-sm px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase border ${meta.bg} ${meta.text} ${meta.border}`}
                         >
                           {pathway.count} item{pathway.count === 1 ? "" : "s"}
                         </span>
                       </div>
-                      <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
+                      <span className="font-mono text-xs text-[#6b746e]">
                         {percentage}%
                       </span>
                     </div>
 
-                    <div className="w-full bg-zinc-100 h-2.5 rounded-full overflow-hidden dark:bg-zinc-800">
+                    <div className="w-full bg-[#e9ede7] h-2 rounded-sm overflow-hidden">
                       <div
-                        className={`h-full rounded-full transition-all duration-500 ${meta.bar}`}
+                        className={`h-full rounded-sm transition-all duration-300 ${meta.bar}`}
                         style={{ width: `${Math.max(pathway.count > 0 ? 3 : 0, barWidth)}%` }}
                       />
                     </div>
@@ -443,14 +403,14 @@ export default function DashboardPage() {
           </div>
 
           {/* Processed Items Table */}
-          <div className="rounded-md border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-100 pb-3 dark:border-zinc-800">
+          <div className="rounded-sm border border-[#d8ddd7] bg-white p-6 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#d8ddd7] pb-3">
               <div>
-                <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                  Recent Evaluated Items
+                <h2 className="text-sm font-semibold text-[#151817]">
+                  Intake Log
                 </h2>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Chronological log of intake submissions and circular economy actions
+                <p className="text-xs text-[#6b746e]">
+                  Evaluated hardware items and computed pathways
                 </p>
               </div>
             </div>
@@ -458,16 +418,16 @@ export default function DashboardPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead>
-                  <tr className="border-b border-zinc-200 text-zinc-500 dark:border-zinc-800 dark:text-zinc-400 font-mono text-[11px] uppercase">
-                    <th className="pb-2.5 font-medium">Item & Brand</th>
+                  <tr className="border-b border-[#d8ddd7] text-[#6b746e] font-mono text-[11px] uppercase">
+                    <th className="pb-2.5 font-medium">Item</th>
                     <th className="pb-2.5 font-medium">Condition</th>
-                    <th className="pb-2.5 font-medium">Recommendation</th>
-                    <th className="pb-2.5 font-medium text-right">CO₂e Avoided</th>
-                    <th className="pb-2.5 font-medium text-right">Secondary Value</th>
-                    <th className="pb-2.5 font-medium text-right">Actions</th>
+                    <th className="pb-2.5 font-medium">Action</th>
+                    <th className="pb-2.5 font-medium text-right">CO2e Saved</th>
+                    <th className="pb-2.5 font-medium text-right">Est. Resale</th>
+                    <th className="pb-2.5 font-medium text-right">Links</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
+                <tbody className="divide-y divide-[#d8ddd7]">
                   {items.map((item) => {
                     const primaryRec =
                       (item.recommendations?.[0]?.recommended_action as RecommendedAction) ||
@@ -475,10 +435,10 @@ export default function DashboardPage() {
                     const colorMeta = ACTION_COLORS[primaryRec] || ACTION_COLORS.reuse;
 
                     return (
-                      <tr key={item.id} className="hover:bg-zinc-50/60 dark:hover:bg-zinc-800/30 transition-colors">
+                      <tr key={item.id} className="hover:bg-[#f4f5f1] transition-colors">
                         <td className="py-3 pr-3">
                           <div className="flex items-center gap-3">
-                            <div className="h-9 w-9 flex-shrink-0 overflow-hidden rounded border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 flex items-center justify-center">
+                            <div className="h-9 w-9 flex-shrink-0 overflow-hidden rounded-sm border border-[#d8ddd7] bg-[#f4f5f1] flex items-center justify-center">
                               {item.image_url ? (
                                 // eslint-disable-next-line @next/next/no-img-element
                                 <img
@@ -487,37 +447,37 @@ export default function DashboardPage() {
                                   className="h-full w-full object-contain"
                                 />
                               ) : (
-                                <span className="text-[10px] font-mono text-zinc-400">Item</span>
+                                <span className="text-[10px] font-mono text-[#6b746e]">IMG</span>
                               )}
                             </div>
                             <div>
-                              <div className="font-semibold text-zinc-900 dark:text-zinc-100 capitalize">
-                                {item.item_type}
+                              <div className="font-semibold text-[#151817]">
+                                {formatItemDisplayName(null, item.item_type)}
                               </div>
-                              <div className="text-[11px] text-zinc-400 font-mono">
-                                {item.brand || "Generic"} &bull; {item.estimated_age_years !== null ? `${item.estimated_age_years}y` : "Age N/A"}
+                              <div className="text-[11px] text-[#6b746e] font-mono">
+                                {item.brand || "Generic"} / {item.estimated_age_years !== null ? `${item.estimated_age_years}y` : "Age N/A"}
                               </div>
                             </div>
                           </div>
                         </td>
 
-                        <td className="py-3 pr-3 capitalize text-zinc-600 dark:text-zinc-400">
+                        <td className="py-3 pr-3 text-[#151817] font-mono">
                           {(item.condition || "functional").replace("_", " ")}
                         </td>
 
                         <td className="py-3 pr-3">
                           <span
-                            className={`inline-flex rounded px-2 py-0.5 font-mono text-[10px] font-bold uppercase ${colorMeta.bg} ${colorMeta.text}`}
+                            className={`inline-flex rounded-sm px-2 py-0.5 font-mono text-[10px] font-bold uppercase border ${colorMeta.bg} ${colorMeta.text} ${colorMeta.border}`}
                           >
                             {primaryRec}
                           </span>
                         </td>
 
-                        <td className="py-3 pr-3 text-right font-mono font-semibold text-zinc-900 dark:text-zinc-100">
+                        <td className="py-3 pr-3 text-right font-mono font-semibold text-[#151817]">
                           {item.co2e_saved_est ?? 0} kg
                         </td>
 
-                        <td className="py-3 pr-3 text-right font-mono text-zinc-900 dark:text-zinc-100">
+                        <td className="py-3 pr-3 text-right font-mono text-[#151817]">
                           ₹{(item.resale_value_est ?? 0).toLocaleString("en-IN")}
                         </td>
 
@@ -525,14 +485,14 @@ export default function DashboardPage() {
                           <div className="flex items-center justify-end gap-2 font-mono text-[11px]">
                             <Link
                               href={`/analyze/${item.id}/results`}
-                              className="text-zinc-900 hover:underline dark:text-zinc-100"
+                              className="text-[#2e7d57] hover:underline"
                             >
                               Results
                             </Link>
-                            <span className="text-zinc-300 dark:text-zinc-700">|</span>
+                            <span className="text-[#6b746e]">/</span>
                             <Link
                               href={`/analyze/${item.id}/destinations`}
-                              className="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
+                              className="text-[#6b746e] hover:text-[#151817]"
                             >
                               Map
                             </Link>

@@ -1,316 +1,236 @@
 import Link from "next/link";
+import { ProcessRail } from "@/components/ProcessRail";
+import { supabase } from "@/lib/supabase";
+import { FALLBACK_PARTNERS } from "@/lib/partners-data";
 
-export default function Home() {
+export const revalidate = 60; // revalidate at most once per minute
+
+const pathways = [
+  { number: "01", title: "Repair", desc: "Keep the thing you own working longer." },
+  { number: "02", title: "Reuse", desc: "Give the product another job before replacing it." },
+  { number: "03", title: "Donate", desc: "Move useful value to someone who needs it." },
+  { number: "04", title: "Resell", desc: "Recover value while keeping materials in motion." },
+  { number: "05", title: "Refurbish", desc: "Restore more than function — restore confidence." },
+  { number: "06", title: "Recycle", desc: "Recover material when the next use has run out." },
+];
+
+export default async function Home() {
+  let partnerCount = FALLBACK_PARTNERS.filter((p) => p.verified !== false).length;
+  try {
+    const { count, error } = await supabase
+      .from("partners")
+      .select("*", { count: "exact", head: true });
+    if (!error && typeof count === "number") {
+      partnerCount = count;
+    }
+  } catch (err) {
+    console.error("Live partner count query error:", err);
+  }
   return (
     <div className="space-y-12">
       {/* Hero Section */}
-      <section id="overview" className="border-b border-zinc-200 pb-10 dark:border-zinc-800">
-        <div className="space-y-4 max-w-2xl">
-          <div className="inline-flex items-center gap-2 border border-zinc-200 bg-white px-2.5 py-1 text-xs font-mono text-zinc-600 rounded-md dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
-            <span>CIRCULARITY DECISION ENGINE</span>
-            <span>/</span>
-            <span>POST-PURCHASE REPAIRABILITY INDEX (PP-RI)</span>
+      <section className="rounded-sm bg-[#173d2c] text-white p-8 sm:p-12 relative overflow-hidden border border-[#173d2c]">
+        {/* Subtle background circular motif */}
+        <div className="absolute -right-24 -top-24 w-96 h-96 rounded-full border border-white/10 pointer-events-none" />
+        <div className="absolute -right-36 -top-36 w-[32rem] h-[32rem] rounded-full border border-white/5 pointer-events-none" />
+
+        <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-end">
+          <div className="lg:col-span-8 space-y-6">
+            <div className="inline-flex items-center gap-2 text-xs font-mono font-bold tracking-widest text-[#9ec4ad] uppercase">
+              <span className="inline-block w-6 h-[1px] bg-[#9ec4ad]" />
+              <span>POST-PURCHASE CIRCULARITY ENGINE</span>
+            </div>
+
+            <h1 className="text-4xl font-display font-medium tracking-tight sm:text-6xl text-white leading-tight">
+              Make the <em className="italic font-serif text-[#9cc9ad]">next move</em> count.
+            </h1>
+
+            <p className="text-base sm:text-lg text-white/80 max-w-2xl leading-relaxed">
+              RE:LOOP turns a product photo or live camera capture into a transparent recommendation for what to do with it next — not just &ldquo;recycle this.&rdquo;
+            </p>
+
+            <div className="flex flex-wrap items-center gap-3 pt-2">
+              <Link
+                href="/analyze"
+                className="inline-flex items-center justify-center rounded-sm bg-white px-5 py-3 text-xs font-bold text-[#151817] transition-transform hover:-translate-y-0.5 hover:bg-[#f4f5f1]"
+              >
+                Start Assessment &rarr;
+              </Link>
+              <Link
+                href="/destinations"
+                className="inline-flex items-center justify-center rounded-sm border border-white/30 bg-transparent px-4 py-3 text-xs font-medium text-white transition-colors hover:border-white hover:bg-white/10"
+              >
+                Browse Destination Directory
+              </Link>
+              <Link
+                href="/dashboard"
+                className="inline-flex items-center justify-center rounded-sm border border-white/30 bg-transparent px-4 py-3 text-xs font-medium text-white transition-colors hover:border-white hover:bg-white/10"
+              >
+                View Fleet Ledger
+              </Link>
+            </div>
           </div>
-          <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 sm:text-4xl dark:text-zinc-50">
-            reloop
-          </h1>
-          <p className="text-base leading-relaxed text-zinc-600 dark:text-zinc-400">
-            Post-purchase circular lifecycle intelligence for electronics and household items. Upload an item photograph to assess condition, evaluate repair vs. replace economics, score carbon avoidance, and map local destination pathways.
-          </p>
-          <div className="flex flex-wrap items-center gap-3 pt-2">
-            <Link
-              href="/analyze"
-              className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-            >
-              Analyze an Item &rarr;
-            </Link>
-            <Link
-              href="/dashboard"
-              className="inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-            >
-              Impact Dashboard
-            </Link>
+
+          <div className="lg:col-span-4 border-l border-white/20 pl-6 space-y-3">
+            <p className="font-display text-xl sm:text-2xl text-white/95 leading-snug font-medium">
+              A decision engine for the next life of the things you already own.
+            </p>
+            <p className="text-xs text-white/70 leading-relaxed">
+              AI identifies. You verify. Deterministic rules show the trade-offs.
+            </p>
           </div>
         </div>
       </section>
 
-      {/* How It Works - 3 Step Plain Explanation */}
-      <section id="how-it-works" className="space-y-6 border-b border-zinc-200 pb-12 dark:border-zinc-800">
-        <div>
-          <div className="text-xs font-mono font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-            Process Flow
-          </div>
-          <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
-            How RE:LOOP Works
+      {/* Horizontal Process Rail Component */}
+      <ProcessRail active={1} />
+
+      {/* Six Possible Futures Section */}
+      <section className="space-y-6">
+        <div className="space-y-1 max-w-2xl">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-[#2e7d57]">
+            One item. Six possible futures.
+          </span>
+          <h2 className="text-2xl sm:text-3xl font-bold font-display text-[#151817]">
+            The right answer is rarely a single bin.
           </h2>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-            A three-step deterministic routing process from image capture to destination handover.
+          <p className="text-xs text-[#6b746e] leading-relaxed">
+            RE:LOOP compares the full circularity set so you can see the most useful next step — economically and environmentally.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          {/* Step 1 */}
-          <div className="rounded-md border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 flex flex-col justify-between">
-            <div className="space-y-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-[#d8ddd7] border border-[#d8ddd7] rounded-sm overflow-hidden">
+          {pathways.map((item) => (
+            <article
+              key={item.title}
+              className="bg-white p-6 min-h-[160px] flex flex-col justify-between hover:bg-[#e6f2e8]/40 transition-colors"
+            >
               <div className="flex items-center justify-between">
-                <span className="font-mono text-xs font-semibold text-zinc-400 dark:text-zinc-500">
-                  STEP 01
+                <span className="font-mono text-xs font-bold text-[#2e7d57]">
+                  {item.number}
                 </span>
-                <span className="text-[11px] font-mono px-1.5 py-0.5 rounded border border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
-                  Vision + Review
-                </span>
+                <span className="text-sm text-[#2e7d57] font-bold">↗</span>
               </div>
-              <h3 className="font-medium text-sm text-zinc-900 dark:text-zinc-100 pt-1">
-                Photo & Physical Intake
-              </h3>
-              <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                Upload a photograph of your item. The multimodal vision model detects category, brand, visible cosmetic or structural wear, and component completeness, followed by a human-in-the-loop verification step.
-              </p>
-            </div>
-            <div className="pt-4 text-[11px] text-zinc-400 font-mono">
-              Output: Category, condition, estimated age &amp; baselines
-            </div>
+              <div className="space-y-1">
+                <h3 className="font-display text-lg font-bold text-[#151817]">
+                  {item.title}
+                </h3>
+                <p className="text-xs text-[#6b746e] leading-relaxed">
+                  {item.desc}
+                </p>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      {/* Methodology: Explainable by Design Dark Band Section */}
+      <section className="rounded-sm bg-[#173d2c] text-white p-8 sm:p-10 border border-[#173d2c]">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          <div className="lg:col-span-5 space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[#9ec4ad]">
+              How the decision is made
+            </span>
+            <h2 className="text-2xl sm:text-3xl font-display font-medium text-white">
+              Explainable by design.
+            </h2>
+            <p className="text-xs text-white/70 leading-relaxed pt-2">
+              No black-box verdicts. The system keeps the reasoning visible, then lets you verify and adjust facts before a recommendation is finalized.
+            </p>
           </div>
 
-          {/* Step 2 */}
-          <div className="rounded-md border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 flex flex-col justify-between">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-xs font-semibold text-zinc-400 dark:text-zinc-500">
-                  STEP 02
-                </span>
-                <span className="text-[11px] font-mono px-1.5 py-0.5 rounded border border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
-                  PP-RI Engine
-                </span>
+          <div className="lg:col-span-7 divide-y divide-white/15 border-t border-b border-white/15">
+            <div className="grid grid-cols-12 gap-4 py-4">
+              <span className="col-span-2 font-display font-bold text-sm text-[#9ec4ad]">
+                01
+              </span>
+              <div className="col-span-10 space-y-0.5">
+                <h3 className="font-display text-sm font-semibold text-white">
+                  AI identifies
+                </h3>
+                <p className="text-xs text-white/70">
+                  Multimodal vision models (Gemini 2.0 Flash / Claude / OpenAI) extract a structured first read on item type, brand, and condition.
+                </p>
               </div>
-              <h3 className="font-medium text-sm text-zinc-900 dark:text-zinc-100 pt-1">
-                Six-Pathway Decision
-              </h3>
-              <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                The decision engine calculates the Post-Purchase Repairability Index (PP-RI, 0–10 scale) across repair cost ratio (45%), physical condition (35%), and age (20%), comparing Repair, Reuse, Donate, Resell, Refurbish, and Recycle side-by-side.
-              </p>
             </div>
-            <div className="pt-4 text-[11px] text-zinc-400 font-mono">
-              Output: Primary action, rationale &amp; economics vs. CO2e
-            </div>
-          </div>
 
-          {/* Step 3 */}
-          <div className="rounded-md border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 flex flex-col justify-between">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-xs font-semibold text-zinc-400 dark:text-zinc-500">
-                  STEP 03
-                </span>
-                <span className="text-[11px] font-mono px-1.5 py-0.5 rounded border border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
-                  Geo Routing
-                </span>
+            <div className="grid grid-cols-12 gap-4 py-4">
+              <span className="col-span-2 font-display font-bold text-sm text-[#9ec4ad]">
+                02
+              </span>
+              <div className="col-span-10 space-y-0.5">
+                <h3 className="font-display text-sm font-semibold text-white">
+                  Human verifies
+                </h3>
+                <p className="text-xs text-white/70">
+                  Confirm what is true. Edit fields that matter. Human verification drives the deterministic model.
+                </p>
               </div>
-              <h3 className="font-medium text-sm text-zinc-900 dark:text-zinc-100 pt-1">
-                Local Destination Routing
-              </h3>
-              <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                Match with nearby verified facilities and informal community collectors (kabadiwalas), sorted by straight-line Haversine distance with turn-by-turn navigation links and category filters.
-              </p>
             </div>
-            <div className="pt-4 text-[11px] text-zinc-400 font-mono">
-              Output: OpenStreetMap locations, contact &amp; directions
+
+            <div className="grid grid-cols-12 gap-4 py-4">
+              <span className="col-span-2 font-display font-bold text-sm text-[#9ec4ad]">
+                03
+              </span>
+              <div className="col-span-10 space-y-0.5">
+                <h3 className="font-display text-sm font-semibold text-white">
+                  Rules decide
+                </h3>
+                <p className="text-xs text-white/70">
+                  A transparent Post-Purchase Repairability Index (PP-RI) and 6-pathway economic/carbon matrix compute trade-offs.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-12 gap-4 py-4">
+              <span className="col-span-2 font-display font-bold text-sm text-[#9ec4ad]">
+                04
+              </span>
+              <div className="col-span-10 space-y-0.5">
+                <h3 className="font-display text-sm font-semibold text-white">
+                  Destinations act
+                </h3>
+                <p className="text-xs text-white/70">
+                  Find verified repair centers, refurbishers, NGOs, formal recyclers, or informal collectors (kabadiwalas) nearby via GPS sorting.
+                </p>
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Six Pathways Overview */}
-      <section id="pathways" className="space-y-4 border-b border-zinc-200 pb-12 dark:border-zinc-800">
-        <div>
-          <div className="text-xs font-mono font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-            Circularity Matrix
-          </div>
-          <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
-            Six Distinct End-of-Life Pathways
-          </h2>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-            Every evaluated item is simultaneously scored across 6 circular pathways rather than binary keep-or-toss.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
-          <div className="border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4 rounded-md space-y-1.5">
-            <div className="flex items-center gap-2 font-medium text-zinc-900 dark:text-zinc-100">
-              <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
-              <span>1. Repair</span>
-            </div>
-            <p className="text-zinc-600 dark:text-zinc-400 leading-normal">
-              Fix specific component or cosmetic failures when repair cost is &lt;50% of new replacement baseline.
-            </p>
-          </div>
-
-          <div className="border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4 rounded-md space-y-1.5">
-            <div className="flex items-center gap-2 font-medium text-zinc-900 dark:text-zinc-100">
-              <span className="h-2 w-2 rounded-full bg-blue-500"></span>
-              <span>2. Resell</span>
-            </div>
-            <p className="text-zinc-600 dark:text-zinc-400 leading-normal">
-              Direct peer-to-peer secondary market monetization when device condition is high and age is under 3 years.
-            </p>
-          </div>
-
-          <div className="border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4 rounded-md space-y-1.5">
-            <div className="flex items-center gap-2 font-medium text-zinc-900 dark:text-zinc-100">
-              <span className="h-2 w-2 rounded-full bg-teal-500"></span>
-              <span>3. Reuse</span>
-            </div>
-            <p className="text-zinc-600 dark:text-zinc-400 leading-normal">
-              Direct transfer, repurposing, or secondary utility within home or community without commercial repair.
-            </p>
-          </div>
-
-          <div className="border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4 rounded-md space-y-1.5">
-            <div className="flex items-center gap-2 font-medium text-zinc-900 dark:text-zinc-100">
-              <span className="h-2 w-2 rounded-full bg-purple-500"></span>
-              <span>4. Refurbish</span>
-            </div>
-            <p className="text-zinc-600 dark:text-zinc-400 leading-normal">
-              Professional restoration, battery/screen replacement, and factory re-certification for certified resale.
-            </p>
-          </div>
-
-          <div className="border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4 rounded-md space-y-1.5">
-            <div className="flex items-center gap-2 font-medium text-zinc-900 dark:text-zinc-100">
-              <span className="h-2 w-2 rounded-full bg-indigo-500"></span>
-              <span>5. Donate</span>
-            </div>
-            <p className="text-zinc-600 dark:text-zinc-400 leading-normal">
-              Social benefit transfer to certified educational non-profits or community organizations for older functioning items.
-            </p>
-          </div>
-
-          <div className="border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4 rounded-md space-y-1.5">
-            <div className="flex items-center gap-2 font-medium text-zinc-900 dark:text-zinc-100">
-              <span className="h-2 w-2 rounded-full bg-amber-500"></span>
-              <span>6. Recycle</span>
-            </div>
-            <p className="text-zinc-600 dark:text-zinc-400 leading-normal">
-              Authorized e-waste material recovery, precious metal extraction, and safe hazardous substance disposal.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* Architecture Cards */}
-      <section id="features" className="space-y-4">
-        <h2 className="text-lg font-medium text-zinc-900 dark:text-zinc-100">System Architecture</h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <div className="rounded-md border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-            <div className="flex items-center gap-2 text-zinc-900 dark:text-zinc-100 mb-2">
-              <svg
-                className="h-4 w-4 text-zinc-600 dark:text-zinc-400"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-              <h3 className="font-medium text-sm">Vision &amp; Fallbacks</h3>
-            </div>
-            <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-normal">
-              Deterministic item categorization with Claude 3.5 Sonnet / GPT-4o multimodal parsing and client-side deterministic fallback.
-            </p>
-          </div>
-
-          <div className="rounded-md border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-            <div className="flex items-center gap-2 text-zinc-900 dark:text-zinc-100 mb-2">
-              <svg
-                className="h-4 w-4 text-zinc-600 dark:text-zinc-400"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"
-                />
-              </svg>
-              <h3 className="font-medium text-sm">Supabase Storage &amp; DB</h3>
-            </div>
-            <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-normal">
-              PostgreSQL relational schema storing items, recommendations, and circular partners with zero mock data.
-            </p>
-          </div>
-
-          <div className="rounded-md border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-            <div className="flex items-center gap-2 text-zinc-900 dark:text-zinc-100 mb-2">
-              <svg
-                className="h-4 w-4 text-zinc-600 dark:text-zinc-400"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
-                />
-              </svg>
-              <h3 className="font-medium text-sm">Informal Sector Inclusion</h3>
-            </div>
-            <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-normal">
-              First-class integration of community scrap collectors (kabadiwalas) alongside formal recyclers for grounded Indian e-waste reality.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* Setup Instructions Box */}
-      <section id="setup" className="space-y-4">
-        <h2 className="text-lg font-medium text-zinc-900 dark:text-zinc-100">
-          Environment &amp; Quick Commands
+      {/* Technical Data Specification Summary */}
+      <section className="space-y-4">
+        <h2 className="text-xs font-semibold text-[#151817] uppercase tracking-wider font-mono">
+          System Capability Summary
         </h2>
-        <div className="rounded-md border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1.5">
-              1. Required Environment Variables (.env.local)
+        <div className="rounded-sm border border-[#d8ddd7] bg-white p-5 space-y-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs font-mono">
+            <div>
+              <span className="text-[#6b746e] block text-[11px]">Database Nodes</span>
+              <span className="text-base font-bold text-[#151817]">{partnerCount} Verified</span>
             </div>
-            <div className="rounded-md bg-zinc-950 p-3 font-mono text-xs text-zinc-200 overflow-x-auto">
-              <div>NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co</div>
-              <div>NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key</div>
-              <div className="text-zinc-500 pt-1"># Optional Vision Model Keys:</div>
-              <div>ANTHROPIC_API_KEY=sk-ant-api03-...</div>
-              <div>OPENAI_API_KEY=sk-proj-...</div>
+            <div>
+              <span className="text-[#6b746e] block text-[11px]">Coverage Metros</span>
+              <span className="text-base font-bold text-[#151817]">Hyderabad + BLR</span>
             </div>
-          </div>
-
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1.5">
-              2. Verification Commands
+            <div>
+              <span className="text-[#6b746e] block text-[11px]">Decision Model</span>
+              <span className="text-base font-bold text-[#2e7d57]">Deterministic PP-RI</span>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono">
-              <div className="rounded-md border border-zinc-200 p-2.5 dark:border-zinc-800 dark:bg-zinc-950/50">
-                <span className="text-zinc-500"># Run unit tests</span>
-                <div className="text-zinc-900 dark:text-zinc-200 font-semibold mt-0.5">
-                  npm test
-                </div>
-              </div>
-              <div className="rounded-md border border-zinc-200 p-2.5 dark:border-zinc-800 dark:bg-zinc-950/50">
-                <span className="text-zinc-500"># Build for production</span>
-                <div className="text-zinc-900 dark:text-zinc-200 font-semibold mt-0.5">
-                  npm run build
-                </div>
-              </div>
+            <div>
+              <span className="text-[#6b746e] block text-[11px]">Vision Inference</span>
+              <span className="text-base font-bold text-[#151817]">Gemini / Claude / GPT</span>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Privacy Disclosure Notice */}
-      <section className="border-t border-zinc-200 pt-6 dark:border-zinc-800">
-        <div className="rounded-md border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40 text-xs text-zinc-500 dark:text-zinc-400">
-          <span className="font-semibold text-zinc-700 dark:text-zinc-300">Privacy disclosure: </span>
-          Uploaded item photos are processed securely to evaluate physical condition and stored in your guest session database for routing calculations. No personal identifying information or contact details are collected, tracked, or shared with third parties.
+      {/* Privacy Notice */}
+      <section className="border-t border-[#d8ddd7] pt-6">
+        <div className="rounded-sm border border-[#d8ddd7] bg-[#e9ede7] p-3 text-[11px] text-[#6b746e] leading-relaxed">
+          <strong className="text-[#151817]">Privacy specification: </strong>
+          Item photographs and geolocation coordinates are processed exclusively during active client sessions to generate decision metrics and find nearby circular partners. No personal tracking, advertisement identifiers, or location histories are stored.
         </div>
       </section>
     </div>

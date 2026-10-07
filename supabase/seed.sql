@@ -1,9 +1,217 @@
 -- ==============================================================================
--- RE:LOOP Partner Seed Data (Bengaluru, India)
--- 20 Verified Partners across 5 Categories (Repair, Refurbisher, NGO, Recycler, Informal)
+-- RE:LOOP Partner Seed Data (Hyderabad & Bengaluru, India)
+-- 40 Verified Partners across 5 Categories (Repair, Refurbisher, NGO, Recycler, Informal)
 -- ==============================================================================
 
 INSERT INTO partners (name, partner_type, lat, lng, city, contact, verified) VALUES
+  -- ============================================================================
+  -- HYDERABAD PARTNERS (20 Verified Nodes)
+  -- ============================================================================
+
+  -- ----------------------------------------------------------------------------
+  -- REPAIR PARTNERS (4)
+  -- ----------------------------------------------------------------------------
+  (
+    'Deccan Silicon & Logic Board Clinic',
+    'repair',
+    17.4486,
+    78.3908,
+    'Hyderabad',
+    '+91-98490-12844 | support@deccansilicon.in',
+    true
+  ),
+  (
+    'CyberTowers MicroFix Lab',
+    'repair',
+    17.4504,
+    78.3809,
+    'Hyderabad',
+    '+91-98851-77210 | intake@cybertowersfix.com',
+    true
+  ),
+  (
+    'Nizam Chipset & Hardware Restorations',
+    'repair',
+    17.4399,
+    78.4983,
+    'Hyderabad',
+    '+91-99081-33245 | desk@nizamrestorations.org',
+    true
+  ),
+  (
+    'Kukatpally Device Care & Soldering Center',
+    'repair',
+    17.4938,
+    78.3995,
+    'Hyderabad',
+    '+91-97011-88432 | kphb.care@gadgetclinic.in',
+    true
+  ),
+
+  -- ----------------------------------------------------------------------------
+  -- REFURBISHER PARTNERS (4)
+  -- ----------------------------------------------------------------------------
+  (
+    'Charminar Circular Systems',
+    'refurbisher',
+    17.4401,
+    78.3489,
+    'Hyderabad',
+    '+91-98480-44911 | sales@charminarcircular.in',
+    true
+  ),
+  (
+    'HITEC Revive Hardware Labs',
+    'refurbisher',
+    17.4699,
+    78.3578,
+    'Hyderabad',
+    '+91-99499-12340 | intake@hitecrevive.org',
+    true
+  ),
+  (
+    'Kakatiya Tech Refurb Hub',
+    'refurbisher',
+    17.4375,
+    78.4482,
+    'Hyderabad',
+    '+91-98660-55789 | ops@kakatiyarefurb.com',
+    true
+  ),
+  (
+    'Golconda Electronics Rebuilders',
+    'refurbisher',
+    17.4447,
+    78.4664,
+    'Hyderabad',
+    '+91-97033-66120 | refurb@golcondarebuilders.in',
+    true
+  ),
+
+  -- ----------------------------------------------------------------------------
+  -- NGO & DONATION PARTNERS (4)
+  -- ----------------------------------------------------------------------------
+  (
+    'Telangana Digital Inclusion Trust',
+    'ngo',
+    17.4156,
+    78.4357,
+    'Hyderabad',
+    '+91-94400-88120 | donate@telanganadigitaltrust.org',
+    true
+  ),
+  (
+    'Hyderabad VidyaTech Community Network',
+    'ngo',
+    17.4319,
+    78.4073,
+    'Hyderabad',
+    '+91-98491-33200 | contact@vidyatechhyd.org',
+    true
+  ),
+  (
+    'Deccan Green Bridge Foundation',
+    'ngo',
+    17.3871,
+    78.4792,
+    'Hyderabad',
+    '+91-99890-77112 | outreach@deccangreenbridge.org',
+    true
+  ),
+  (
+    'Samarthya Hyderabad Sustainable Tech Hub',
+    'ngo',
+    17.3916,
+    78.4398,
+    'Hyderabad',
+    '+91-98666-44331 | donate@samarthyahyd.org',
+    true
+  ),
+
+  -- ----------------------------------------------------------------------------
+  -- RECYCLER PARTNERS (4)
+  -- ----------------------------------------------------------------------------
+  (
+    'Cherlapally Eco-Recovery & Smelting',
+    'recycler',
+    17.4623,
+    78.6012,
+    'Hyderabad',
+    '+91-98495-66778 | plant@cherlapallyrecovery.co.in',
+    true
+  ),
+  (
+    'Deccan Zero-Waste Material Processors',
+    'recycler',
+    17.5186,
+    78.4522,
+    'Hyderabad',
+    '+91-99480-22119 | ops@deccanzero.in',
+    true
+  ),
+  (
+    'PearlCity Urban Minerals & E-Waste Refiners',
+    'recycler',
+    17.4674,
+    78.4412,
+    'Hyderabad',
+    '+91-98661-88900 | dispatch@pearlcityminerals.com',
+    true
+  ),
+  (
+    'Telangana GreenSpire Industrial Recovery Facility',
+    'recycler',
+    17.4042,
+    78.5606,
+    'Hyderabad',
+    '+91-97010-33445 | intake@greenspiretelangana.org',
+    true
+  ),
+
+  -- ----------------------------------------------------------------------------
+  -- INFORMAL (VERIFIED COMMUNITY COLLECTORS) (4)
+  -- ----------------------------------------------------------------------------
+  (
+    'Yadagiri Verified Scrap Aggregation Point',
+    'informal',
+    17.4428,
+    78.3842,
+    'Hyderabad',
+    '+91-98481-99023 | via RE:LOOP Hyderabad WhatsApp Dispatch',
+    true
+  ),
+  (
+    'Khaleel Bhai Verified Electronics Kabadiwala',
+    'informal',
+    17.3616,
+    78.4747,
+    'Hyderabad',
+    '+91-98850-66124 | via RE:LOOP South Zone Coordinator',
+    true
+  ),
+  (
+    'Cyberabad Green Scrap Sorters',
+    'informal',
+    17.4968,
+    78.3546,
+    'Hyderabad',
+    '+91-99088-22310 | via RE:LOOP Logistics Desk',
+    true
+  ),
+  (
+    'Secunderabad EcoCollector Verified Node',
+    'informal',
+    17.4412,
+    78.4891,
+    'Hyderabad',
+    '+91-97001-44567 | via RE:LOOP Field Operator',
+    true
+  ),
+
+  -- ============================================================================
+  -- BENGALURU PARTNERS (20 Verified Nodes)
+  -- ============================================================================
+
   -- ----------------------------------------------------------------------------
   -- REPAIR PARTNERS (4)
   -- ----------------------------------------------------------------------------

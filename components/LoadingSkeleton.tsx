@@ -3,7 +3,7 @@ import React from "react";
 export function Skeleton({ className = "" }: { className?: string }) {
   return (
     <div
-      className={`animate-pulse rounded bg-zinc-200 dark:bg-zinc-800 ${className}`}
+      className={`animate-pulse rounded-sm bg-[#E6E3DA] dark:bg-[#2A2D29] ${className}`}
       aria-hidden="true"
     />
   );
@@ -12,8 +12,7 @@ export function Skeleton({ className = "" }: { className?: string }) {
 export function ResultsPageSkeleton() {
   return (
     <div className="mx-auto max-w-4xl space-y-6">
-      {/* Top Header Skeleton */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-200 pb-4 dark:border-zinc-800">
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#d8ddd7] pb-4 dark:border-[#2E322D]">
         <div className="space-y-2">
           <Skeleton className="h-4 w-32" />
           <Skeleton className="h-8 w-64" />
@@ -25,12 +24,11 @@ export function ResultsPageSkeleton() {
         </div>
       </div>
 
-      {/* Item Summary Grid Skeleton */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="md:col-span-1 rounded-md border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900 flex flex-col items-center justify-center min-h-[160px]">
-          <Skeleton className="h-28 w-28 rounded-md" />
+        <div className="md:col-span-1 rounded-sm border border-[#d8ddd7] bg-[#FAF9F5] p-4 dark:border-[#2E322D] dark:bg-[#232722] flex flex-col items-center justify-center min-h-[160px]">
+          <Skeleton className="h-28 w-28 rounded-sm" />
         </div>
-        <div className="md:col-span-3 rounded-md border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900 space-y-3">
+        <div className="md:col-span-3 rounded-sm border border-[#d8ddd7] bg-[#FAF9F5] p-4 dark:border-[#2E322D] dark:bg-[#232722] space-y-3">
           <Skeleton className="h-4 w-36" />
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
             <Skeleton className="h-14 w-full" />
@@ -41,8 +39,7 @@ export function ResultsPageSkeleton() {
         </div>
       </div>
 
-      {/* Primary Recommendation Banner Skeleton */}
-      <div className="rounded-md border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
+      <div className="rounded-sm border border-[#d8ddd7] bg-[#FAF9F5] p-6 dark:border-[#2E322D] dark:bg-[#232722] space-y-4">
         <div className="flex items-center justify-between">
           <Skeleton className="h-6 w-44" />
           <Skeleton className="h-5 w-24" />
@@ -56,8 +53,7 @@ export function ResultsPageSkeleton() {
         </div>
       </div>
 
-      {/* PP-RI Score Breakdown Card Skeleton */}
-      <div className="rounded-md border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
+      <div className="rounded-sm border border-[#d8ddd7] bg-[#FAF9F5] p-6 dark:border-[#2E322D] dark:bg-[#232722] space-y-4">
         <div className="flex items-center justify-between">
           <Skeleton className="h-5 w-56" />
           <Skeleton className="h-6 w-16" />
@@ -69,8 +65,7 @@ export function ResultsPageSkeleton() {
         </div>
       </div>
 
-      {/* 6 Pathways Matrix Skeleton */}
-      <div className="rounded-md border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
+      <div className="rounded-sm border border-[#d8ddd7] bg-[#FAF9F5] p-6 dark:border-[#2E322D] dark:bg-[#232722] space-y-4">
         <Skeleton className="h-5 w-48" />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <Skeleton className="h-24 w-full" />
@@ -88,8 +83,7 @@ export function ResultsPageSkeleton() {
 export function DestinationsPageSkeleton() {
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      {/* Top Header Skeleton */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-200 pb-4 dark:border-zinc-800">
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#d8ddd7] pb-4 dark:border-[#2E322D]">
         <div className="space-y-2">
           <Skeleton className="h-4 w-32" />
           <Skeleton className="h-7 w-64" />
@@ -101,8 +95,7 @@ export function DestinationsPageSkeleton() {
         </div>
       </div>
 
-      {/* Location Bar Skeleton */}
-      <div className="rounded-md border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900 flex flex-wrap items-center justify-between gap-3">
+      <div className="rounded-sm border border-[#d8ddd7] bg-[#FAF9F5] p-4 dark:border-[#2E322D] dark:bg-[#232722] flex flex-wrap items-center justify-between gap-3">
         <Skeleton className="h-8 w-60" />
         <div className="flex items-center gap-2">
           <Skeleton className="h-8 w-32" />
@@ -110,12 +103,8 @@ export function DestinationsPageSkeleton() {
         </div>
       </div>
 
-      {/* Map & List Grid Skeleton */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 rounded-md border border-zinc-200 bg-white p-2 dark:border-zinc-800 dark:bg-zinc-900">
-          <Skeleton className="h-[460px] w-full rounded-md" />
-        </div>
-        <div className="lg:col-span-1 rounded-md border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900 space-y-3">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="lg:col-span-5 rounded-sm border border-[#d8ddd7] bg-[#FAF9F5] p-4 dark:border-[#2E322D] dark:bg-[#232722] space-y-3">
           <Skeleton className="h-4 w-32" />
           <Skeleton className="h-8 w-full" />
           <div className="space-y-2 pt-2">
@@ -125,6 +114,9 @@ export function DestinationsPageSkeleton() {
             <Skeleton className="h-20 w-full" />
           </div>
         </div>
+        <div className="lg:col-span-7 rounded-sm border border-[#d8ddd7] bg-[#FAF9F5] p-2 dark:border-[#2E322D] dark:bg-[#232722]">
+          <Skeleton className="h-[460px] w-full rounded-sm" />
+        </div>
       </div>
     </div>
   );
@@ -133,8 +125,7 @@ export function DestinationsPageSkeleton() {
 export function DashboardPageSkeleton() {
   return (
     <div className="mx-auto max-w-5xl space-y-8">
-      {/* Top Header Skeleton */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-200 pb-4 dark:border-zinc-800">
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#d8ddd7] pb-4 dark:border-[#2E322D]">
         <div className="space-y-2">
           <Skeleton className="h-4 w-40" />
           <Skeleton className="h-8 w-72" />
@@ -146,16 +137,14 @@ export function DashboardPageSkeleton() {
         </div>
       </div>
 
-      {/* KPI Cards Grid Skeleton */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Skeleton className="h-28 w-full rounded-md" />
-        <Skeleton className="h-28 w-full rounded-md" />
-        <Skeleton className="h-28 w-full rounded-md" />
-        <Skeleton className="h-28 w-full rounded-md" />
+        <Skeleton className="h-28 w-full rounded-sm" />
+        <Skeleton className="h-28 w-full rounded-sm" />
+        <Skeleton className="h-28 w-full rounded-sm" />
+        <Skeleton className="h-28 w-full rounded-sm" />
       </div>
 
-      {/* Chart Skeleton */}
-      <div className="rounded-md border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
+      <div className="rounded-sm border border-[#d8ddd7] bg-[#FAF9F5] p-6 dark:border-[#2E322D] dark:bg-[#232722] space-y-4">
         <Skeleton className="h-5 w-52" />
         <div className="space-y-3 pt-2">
           <Skeleton className="h-6 w-full" />
@@ -167,8 +156,7 @@ export function DashboardPageSkeleton() {
         </div>
       </div>
 
-      {/* Table Skeleton */}
-      <div className="rounded-md border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
+      <div className="rounded-sm border border-[#d8ddd7] bg-[#FAF9F5] p-6 dark:border-[#2E322D] dark:bg-[#232722] space-y-4">
         <Skeleton className="h-5 w-44" />
         <div className="space-y-2 pt-2">
           <Skeleton className="h-10 w-full" />

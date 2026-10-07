@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useRef, ChangeEvent, DragEvent } from "react";
+import { useState, useRef, useEffect, ChangeEvent, DragEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { evaluateItem } from "@/lib/decisionEngine";
+import { evaluateItem, ITEM_TYPE_PRESETS } from "@/lib/decisionEngine";
+import { ProcessRail } from "@/components/ProcessRail";
 
 type AssessmentCondition =
   "functional" | "cosmetic_damage" | "partially_working" | "severely_damaged";
@@ -31,6 +32,7 @@ export default function AnalyzePage() {
   // Image states
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [base64Url, setBase64Url] = useState<string | null>(null);
   const [uploadedPublicUrl, setUploadedPublicUrl] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -46,25 +48,143 @@ export default function AnalyzePage() {
 
   const [aiProvider, setAiProvider] = useState<string | null>(null);
   const [isManualFallback, setIsManualFallback] = useState(false);
+  const [isLowConfidence, setIsLowConfidence] = useState(false);
+  const [confidenceLevel, setConfidenceLevel] = useState<"high" | "medium" | "low">("medium");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
-  const [savedItemId, setSavedItemId] = useState<string | null>(null);
+  const [notElectronicError, setNotElectronicError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+
+  // Camera state
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [isStartingCamera, setIsStartingCamera] = useState(false);
+
+  // Clean up camera stream on unmount or reset
+  const stopCamera = () => {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setIsCameraOpen(false);
+    setIsStartingCamera(false);
+  };
+
+  // Start live camera stream (getUserMedia) with fallback to native capture input
+  const startCamera = async () => {
+    setErrorMessage(null);
+    setInfoMessage(null);
+    setNotElectronicError(null);
+    setIsStartingCamera(true);
+
+    if (typeof window === "undefined" || !navigator?.mediaDevices?.getUserMedia) {
+      setIsStartingCamera(false);
+      cameraInputRef.current?.click();
+      return;
+    }
+
+    try {
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
+          audio: false,
+        });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      }
+
+      mediaStreamRef.current = stream;
+      setIsCameraOpen(true);
+      setIsStartingCamera(false);
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play().catch((err) => console.warn("Video playback notice:", err));
+      }
+    } catch (err: unknown) {
+      console.warn("Camera getUserMedia error / permission denied:", err);
+      stopCamera();
+      setInfoMessage("Camera access not available or permission denied. Switched to file picker.");
+      cameraInputRef.current?.click();
+    }
+  };
+
+  // Ensure video element receives the stream when modal/view mounts
+  useEffect(() => {
+    if (isCameraOpen && videoRef.current && mediaStreamRef.current) {
+      videoRef.current.srcObject = mediaStreamRef.current;
+      videoRef.current.play().catch((err) => console.warn("Video playback notice:", err));
+    }
+  }, [isCameraOpen]);
+
+  // Clean up any active media stream when component unmounts
+  useEffect(() => {
+    return () => {
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+      }
+    };
+  }, []);
+
+  // Capture frame from active video element to Blob / File
+  const capturePhoto = () => {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      setErrorMessage("Unable to capture image from camera canvas.");
+      return;
+    }
+
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          setErrorMessage("Failed to generate image file from camera capture.");
+          return;
+        }
+        const file = new File([blob], `camera-intake-${Date.now()}.jpg`, {
+          type: "image/jpeg",
+        });
+        stopCamera();
+        handleFile(file);
+      },
+      "image/jpeg",
+      0.92
+    );
+  };
 
   // Handle file selection
   const handleFile = (file: File) => {
     setErrorMessage(null);
+    setNotElectronicError(null);
 
     // Validate type
     if (!["image/jpeg", "image/png", "image/webp", "image/jpg"].includes(file.type)) {
-      setErrorMessage("Please select a JPG, PNG, or WebP image.");
+      setErrorMessage("Supported file formats: JPG, PNG, or WebP.");
       return;
     }
 
     // Validate size (8MB)
     if (file.size > MAX_FILE_SIZE_BYTES) {
-      setErrorMessage("Image file exceeds the 8MB limit. Please upload a smaller file.");
+      setErrorMessage("Image file exceeds the 8MB limit. Please provide a smaller image.");
       return;
     }
 
@@ -110,13 +230,14 @@ export default function AnalyzePage() {
   // Step 1 -> 2: Upload to Supabase Storage & trigger Vision API
   const handleStartAnalysis = async () => {
     if (!selectedFile) {
-      setErrorMessage("Please select an image first.");
+      setErrorMessage("Please capture or upload an item photograph first.");
       return;
     }
 
     setStep("analyzing");
     setErrorMessage(null);
     setInfoMessage(null);
+    setNotElectronicError(null);
 
     try {
       // 1. Upload to Supabase Storage (bucket: 'item-photos')
@@ -148,6 +269,7 @@ export default function AnalyzePage() {
 
       // 2. Prepare Base64 payload for Vision API
       const base64Data = await fileToBase64(selectedFile);
+      setBase64Url(base64Data);
 
       // 3. Call /api/analyze-image
       const res = await fetch("/api/analyze-image", {
@@ -162,20 +284,34 @@ export default function AnalyzePage() {
 
       const responseJson = await res.json();
 
+      // Check strict electronics-only gate
+      if (responseJson.not_electronic || (!responseJson.success && responseJson.not_electronic)) {
+        const rejectionMsg =
+          responseJson.message ||
+          "RE:LOOP currently only assesses electronic items. This photo doesn't appear to show an electronic device — please upload a photo of an electronic item instead.";
+        setNotElectronicError(rejectionMsg);
+        setStep("upload");
+        return;
+      }
+      const parsedData = responseJson.data || {};
+      const lowConf = Boolean(responseJson.manual_fallback || parsedData.is_low_confidence || parsedData.confidence === "low");
+
+      setIsLowConfidence(lowConf);
+      setConfidenceLevel(parsedData.confidence || (lowConf ? "low" : "medium"));
+
       if (responseJson.manual_fallback) {
         setIsManualFallback(true);
         setInfoMessage(
           responseJson.message ||
-            "Vision assessment unavailable. Please review and input item specs manually."
+            "Vision model provided a preliminary best-guess. Please verify item category below."
         );
       } else {
         setIsManualFallback(false);
         setAiProvider(responseJson.provider);
       }
 
-      const parsedData = responseJson.data || {};
       setFormData({
-        item_type: parsedData.item_type || "",
+        item_type: parsedData.item_type || "Other Electronics / Unlisted",
         brand: parsedData.brand || "",
         estimated_age_years:
           parsedData.estimated_age_years !== null && parsedData.estimated_age_years !== undefined
@@ -192,8 +328,15 @@ export default function AnalyzePage() {
       setStep("review");
     } catch (err) {
       console.error("Analysis error:", err);
+      setErrorMessage(null);
       setIsManualFallback(true);
-      setInfoMessage("Could not contact Vision API. Switched to manual item specification mode.");
+      setIsLowConfidence(true);
+      setConfidenceLevel("low");
+      setInfoMessage("Vision API unreachable. Switched to manual item verification mode.");
+      setFormData((prev) => ({
+        ...prev,
+        item_type: prev.item_type || "Other Electronics / Unlisted",
+      }));
       setStep("review");
     }
   };
@@ -226,7 +369,7 @@ export default function AnalyzePage() {
       const { data: itemData, error: itemError } = await supabase
         .from("items")
         .insert({
-          image_url: uploadedPublicUrl || previewUrl,
+          image_url: uploadedPublicUrl || base64Url || previewUrl,
           item_type: formData.item_type.trim().toLowerCase(),
           brand: formData.brand.trim() || null,
           estimated_age_years: ageNum,
@@ -241,7 +384,7 @@ export default function AnalyzePage() {
 
       if (itemError || !itemData) {
         console.error("Database insert error:", itemError);
-        throw new Error(itemError?.message || "Failed to save item to database.");
+        throw new Error(itemError?.message || "Failed to write record to database.");
       }
 
       // 3. Save recommendation into recommendations table
@@ -260,7 +403,6 @@ export default function AnalyzePage() {
         console.warn("Recommendation insert notice:", recError.message);
       }
 
-      setSavedItemId(itemData.id);
       setStep("success");
 
       // 4. Redirect immediately to the results page
@@ -277,12 +419,13 @@ export default function AnalyzePage() {
   };
 
   const handleReset = () => {
+    stopCamera();
     setSelectedFile(null);
     setPreviewUrl(null);
     setUploadedPublicUrl(null);
-    setSavedItemId(null);
     setErrorMessage(null);
     setInfoMessage(null);
+    setNotElectronicError(null);
     setFormData({
       item_type: "",
       brand: "",
@@ -292,6 +435,30 @@ export default function AnalyzePage() {
       material_recoverable: true,
     });
     setStep("upload");
+  };
+
+  const handleUseSampleItem = () => {
+    stopCamera();
+    setErrorMessage(null);
+    setNotElectronicError(null);
+    setInfoMessage("Sample hardware item loaded (Lenovo ThinkPad Laptop). Verify or customize the specifications below.");
+    setIsManualFallback(false);
+    setAiProvider("sample-template");
+
+    setFormData({
+      item_type: "laptop",
+      brand: "Lenovo ThinkPad",
+      estimated_age_years: "3.5",
+      condition: "cosmetic_damage",
+      condition_notes: "Minor scuffs on outer casing and hinge wear. Display, keyboard, and motherboard fully operational.",
+      material_recoverable: true,
+    });
+
+    const sampleImg = "https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?auto=format&fit=crop&w=800&q=80";
+    setPreviewUrl(sampleImg);
+    setUploadedPublicUrl(sampleImg);
+    setBase64Url(sampleImg);
+    setStep("review");
   };
 
   // Current calculated impact for live preview
@@ -304,113 +471,315 @@ export default function AnalyzePage() {
   });
 
   return (
-    <div className="mx-auto max-w-3xl space-y-8">
-      {/* Header Breadcrumb */}
-      <div className="flex items-center justify-between border-b border-zinc-200 pb-4 dark:border-zinc-800">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-            Item Intake & Condition Assessment
-          </h1>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-            Phase 1: Multi-modal vision analysis with mandatory human-in-the-loop verification
-          </p>
-        </div>
-        <div className="text-xs font-mono text-zinc-400">
-          {step === "upload" && "Step 1 of 3: Upload"}
-          {step === "analyzing" && "Processing Vision"}
-          {step === "review" && "Step 2 of 3: Verify"}
-          {step === "saving" && "Saving to Database"}
-          {step === "success" && "Step 3 of 3: Ready"}
-        </div>
+    <div className="mx-auto max-w-3xl space-y-6">
+      {/* 4-Step Process Rail */}
+      <ProcessRail active={step === "upload" || step === "analyzing" ? 1 : step === "review" || step === "saving" ? 2 : 3} />
+
+      {/* Hidden file inputs: standard browser picker & direct mobile camera capture */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        onChange={handleFileInputChange}
+        className="hidden"
+      />
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handleFileInputChange}
+        className="hidden"
+      />
+
+      {/* Header */}
+      <div className="border-b border-[#d8ddd7] pb-4 space-y-1">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-[#2e7d57]">
+          {step === "upload" || step === "analyzing" ? "Step 01 / Image Intake" : "Step 02 / Human Verification"}
+        </span>
+        <h1 className="text-2xl font-bold font-display text-[#151817]">
+          {step === "upload" || step === "analyzing"
+            ? "What should you do with this next?"
+            : "Does this look right? Verify facts."}
+        </h1>
+        <p className="text-xs text-[#6b746e]">
+          {step === "upload" || step === "analyzing"
+            ? "Capture a live photo, upload an image, or try a sample item to assess its circular lifecycle."
+            : "The AI provides a starting point. Your confirmed specifications drive the deterministic decision engine."}
+        </p>
       </div>
+
+      {/* Non-Electronic Item Rejection Alert Banner */}
+      {notElectronicError && (
+        <div className="rounded-sm border-2 border-[#a3512b] bg-[#FDF2EC] p-5 space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-sm bg-[#a3512b] text-white">
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-[#a3512b]">
+                  Scope Policy Gate
+                </span>
+                <span className="rounded-sm bg-[#a3512b]/15 px-1.5 py-0.5 font-mono text-[10px] font-bold text-[#a3512b]">
+                  Non-Electronic Item Detected
+                </span>
+              </div>
+              <h3 className="font-display text-sm font-semibold text-[#151817]">
+                Electronics-Only Assessment Gate
+              </h3>
+              <p className="text-xs text-[#6b746e] leading-relaxed">
+                {notElectronicError}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-[#a3512b]/20">
+            <button
+              type="button"
+              onClick={() => {
+                setNotElectronicError(null);
+                setSelectedFile(null);
+                setPreviewUrl(null);
+                fileInputRef.current?.click();
+              }}
+              className="inline-flex items-center gap-1.5 rounded-sm bg-[#151817] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#2E312D]"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+              </svg>
+              <span>Upload Electronic Photo</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setNotElectronicError(null);
+                setSelectedFile(null);
+                setPreviewUrl(null);
+                startCamera();
+              }}
+              className="inline-flex items-center gap-1.5 rounded-sm border border-[#d8ddd7] bg-white px-4 py-2 text-xs font-medium text-[#151817] transition-colors hover:bg-[#e9ede7]"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+              </svg>
+              <span>Retake via Camera</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleUseSampleItem}
+              className="inline-flex items-center gap-1.5 text-xs text-[#6b746e] hover:text-[#151817] underline underline-offset-2 sm:ml-auto"
+            >
+              Or try sample hardware (Laptop) &rarr;
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Global Error Banner */}
       {errorMessage && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-4 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
-          <div className="font-medium mb-0.5">Error Notice</div>
+        <div className="rounded-sm border border-[#a3512b]/40 bg-[#FAECE6] p-4 text-xs text-[#a3512b]">
+          <div className="font-semibold mb-0.5">Assessment Error</div>
           <div>{errorMessage}</div>
         </div>
       )}
 
       {/* Global Info Banner */}
       {infoMessage && (
-        <div className="rounded-md border border-zinc-300 bg-zinc-100 p-4 text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-300">
-          <div className="font-medium mb-0.5">System Notice</div>
+        <div className="rounded-sm border border-[#d8ddd7] bg-[#e9ede7] p-4 text-xs text-[#151817]">
+          <div className="font-semibold mb-0.5">System Notice</div>
           <div>{infoMessage}</div>
         </div>
       )}
 
       {/* ========================================================================= */}
-      {/* STEP 1: UPLOAD STATE */}
+      {/* STEP 01: UPLOAD & CAMERA INTAKE */}
       {/* ========================================================================= */}
       {step === "upload" && (
         <div className="space-y-6">
-          <div
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-            className={`cursor-pointer rounded-md border-2 border-dashed p-8 text-center transition-colors ${
-              isDragging
-                ? "border-zinc-900 bg-zinc-100 dark:border-zinc-100 dark:bg-zinc-800"
-                : "border-zinc-300 bg-white hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-zinc-600"
-            }`}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              onChange={handleFileInputChange}
-              className="hidden"
-            />
+          {/* Live Camera Viewport (getUserMedia) */}
+          {isCameraOpen ? (
+            <div className="rounded-sm border border-[#d8ddd7] bg-[#151817] p-5 space-y-4 text-center">
+              <div className="flex items-center justify-between text-xs text-[#d8ddd7] pb-1 border-b border-[#2E312D]">
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-sm bg-[#2e7d57]" />
+                  <span className="font-mono text-[11px] text-white">CAMERA FEED ACTIVE</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={stopCamera}
+                  className="text-[#6b746e] hover:text-white transition-colors text-xs"
+                >
+                  Close Camera [ESC]
+                </button>
+              </div>
 
-            {previewUrl ? (
-              <div className="space-y-4">
-                <div className="mx-auto max-h-64 max-w-sm overflow-hidden rounded-md border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={previewUrl}
-                    alt="Selected item preview"
-                    className="h-full w-full object-contain"
-                  />
+              <div className="relative mx-auto max-w-md overflow-hidden rounded-sm border border-[#454843] bg-black aspect-video flex items-center justify-center">
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="h-full w-full object-cover"
+                />
+                <div className="pointer-events-none absolute inset-4 rounded-sm border border-dashed border-white/30 flex items-center justify-center">
+                  <span className="text-[10px] font-mono text-white/90 bg-black/70 px-2 py-0.5 rounded-sm">
+                    Center hardware in frame
+                  </span>
                 </div>
-                <div className="text-xs text-zinc-500">
-                  {selectedFile?.name} (
-                  {(selectedFile?.size ? selectedFile.size / 1024 / 1024 : 0).toFixed(2)} MB)
-                </div>
-                <p className="text-xs text-zinc-400">Click or drag a new image to replace</p>
               </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-md border border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-300">
-                  <svg
-                    className="h-5 w-5"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={1.8}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                    />
+
+              <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={capturePhoto}
+                  className="inline-flex items-center gap-2 rounded-sm bg-[#2e7d57] px-5 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#246644]"
+                >
+                  <svg className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
-                </div>
-                <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                  Drop an item photo here, or click to browse
-                </div>
-                <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Supports JPG, PNG, or WebP up to 8MB
-                </div>
+                  <span>Capture Photo</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={stopCamera}
+                  className="rounded-sm border border-[#454843] bg-[#2E312D] px-4 py-2 text-xs font-medium text-[#d8ddd7] transition-colors hover:bg-[#454843]"
+                >
+                  Cancel
+                </button>
               </div>
-            )}
-          </div>
+
+              <p className="text-[11px] text-[#6b746e]">
+                Or <button type="button" onClick={() => { stopCamera(); cameraInputRef.current?.click(); }} className="text-white underline underline-offset-2">open system file dialog</button> instead.
+              </p>
+            </div>
+          ) : (
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`rounded-sm border-2 border-dashed p-8 text-center transition-colors ${
+                isDragging
+                  ? "border-[#2e7d57] bg-[#e6f2e8]"
+                  : "border-[#d8ddd7] bg-white hover:border-[#6b746e]"
+              }`}
+            >
+              {previewUrl ? (
+                <div className="space-y-4">
+                  <div className="mx-auto max-h-64 max-w-sm overflow-hidden rounded-sm border border-[#d8ddd7] bg-[#f4f5f1]">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={previewUrl}
+                      alt="Selected item preview"
+                      className="h-full w-full object-contain"
+                    />
+                  </div>
+                  <div className="font-mono text-xs text-[#6b746e]">
+                    {selectedFile?.name} (
+                    {(selectedFile?.size ? selectedFile.size / 1024 / 1024 : 0).toFixed(2)} MB)
+                  </div>
+                  <div className="flex items-center justify-center gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="rounded-sm border border-[#d8ddd7] bg-white px-3 py-1.5 text-xs font-medium text-[#151817] hover:bg-[#e9ede7] transition-colors"
+                    >
+                      Choose Different File
+                    </button>
+                    <button
+                      type="button"
+                      onClick={startCamera}
+                      className="rounded-sm border border-[#d8ddd7] bg-white px-3 py-1.5 text-xs font-medium text-[#151817] hover:bg-[#e9ede7] transition-colors"
+                    >
+                      Retake Photo
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-sm border border-[#d8ddd7] bg-[#f4f5f1] text-[#151817]">
+                    <svg
+                      className="h-5 w-5"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={1.8}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                      />
+                    </svg>
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="text-sm font-semibold text-[#151817]">
+                      Capture or upload item photograph
+                    </div>
+                    <div className="text-xs text-[#6b746e] font-mono">
+                      JPG, PNG, or WebP (max 8.00 MB)
+                    </div>
+                  </div>
+
+                  {/* Triple Action Buttons */}
+                  <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
+                    <button
+                      type="button"
+                      onClick={startCamera}
+                      disabled={isStartingCamera}
+                      className="inline-flex items-center gap-2 rounded-sm bg-[#2e7d57] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#246644] disabled:opacity-50"
+                    >
+                      {isStartingCamera ? (
+                        <span className="h-3.5 w-3.5 animate-spin rounded-sm border border-white border-t-transparent" />
+                      ) : (
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                      )}
+                      <span>Take Photo</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="inline-flex items-center gap-2 rounded-sm border border-[#d8ddd7] bg-white px-4 py-2 text-xs font-medium text-[#151817] transition-colors hover:bg-[#e9ede7]"
+                    >
+                      <svg className="h-4 w-4 text-[#6b746e]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                      </svg>
+                      <span>Browse Files</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleUseSampleItem}
+                      className="inline-flex items-center gap-1.5 rounded-sm border border-[#d8ddd7] bg-white px-4 py-2 text-xs font-medium text-[#151817] transition-colors hover:bg-[#e9ede7]"
+                    >
+                      <span>Use a sample item</span>
+                      <span aria-hidden="true" className="text-[#2e7d57] font-bold">↗</span>
+                    </button>
+                  </div>
+
+                  <p className="text-[11px] text-[#6b746e] pt-1">
+                    or drag and drop your file into this box
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="flex items-center justify-between pt-2">
             <Link
               href="/"
-              className="inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white px-4 py-2 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              className="inline-flex items-center justify-center rounded-sm border border-[#d8ddd7] bg-white px-4 py-2 text-xs font-medium text-[#151817] transition-colors hover:bg-[#e9ede7]"
             >
               Cancel
             </Link>
@@ -419,87 +788,87 @@ export default function AnalyzePage() {
               type="button"
               disabled={!selectedFile}
               onClick={handleStartAnalysis}
-              className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-5 py-2 text-xs font-medium text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              className="inline-flex items-center justify-center rounded-sm bg-[#2e7d57] px-5 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#246644] disabled:cursor-not-allowed disabled:opacity-40"
             >
               Assess Item Condition &rarr;
             </button>
           </div>
 
-          <div className="rounded-md border border-zinc-200 bg-zinc-50/50 p-3 text-[11px] text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/40 dark:text-zinc-400">
-            <span className="font-medium text-zinc-700 dark:text-zinc-300">Privacy note: </span>
-            Uploaded item photos are processed to estimate physical condition and stored in your guest session database. No personal identifying information is collected or tracked.
+          <div className="rounded-sm border border-[#d8ddd7] bg-[#e9ede7] p-3 text-[11px] text-[#6b746e]">
+            <strong className="text-[#151817]">Privacy notice: </strong>
+            Uploaded and captured item photos are processed to estimate physical condition and stored in your guest session database. No personal identifying information is collected.
           </div>
         </div>
       )}
 
       {/* ========================================================================= */}
-      {/* STEP 2: ANALYZING SPINNER */}
+      {/* STEP 02: ANALYZING SPINNER */}
       {/* ========================================================================= */}
       {step === "analyzing" && (
-        <div className="rounded-md border border-zinc-200 bg-white p-12 text-center dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
-          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-900 dark:border-zinc-700 dark:border-t-zinc-100"></div>
+        <div className="rounded-sm border border-[#d8ddd7] bg-white p-12 text-center space-y-4">
+          <div className="mx-auto h-7 w-7 animate-spin rounded-sm border-2 border-[#d8ddd7] border-t-[#2e7d57]"></div>
           <div className="space-y-1">
-            <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              Assessing Item via Vision API...
+            <h2 className="text-sm font-semibold text-[#151817]">
+              Executing Multimodal Vision Assessment...
             </h2>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Uploading photo to Supabase Storage and running condition classification.
+            <p className="text-xs text-[#6b746e] font-mono">
+              Uploading photo to storage | Extracting item parameters and physical defects
             </p>
           </div>
         </div>
       )}
 
       {/* ========================================================================= */}
-      {/* STEP 3: REVIEW & EDITABLE FORM (MANDATORY HUMAN VERIFICATION) */}
+      {/* STEP 02: REVIEW & EDITABLE FORM (MANDATORY HUMAN VERIFICATION) */}
       {/* ========================================================================= */}
       {(step === "review" || step === "saving") && (
         <form onSubmit={handleConfirmAndSave} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Left Column: Photo Preview & Detection Badge */}
             <div className="space-y-4">
-              <div className="overflow-hidden rounded-md border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950">
+              <div className="overflow-hidden rounded-sm border border-[#d8ddd7] bg-white">
                 {previewUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={previewUrl}
                     alt="Analyzed item"
-                    className="h-48 w-full object-contain"
+                    className="h-48 w-full object-contain bg-[#f4f5f1]"
                   />
                 ) : (
-                  <div className="flex h-48 items-center justify-center text-xs text-zinc-400">
+                  <div className="flex h-48 items-center justify-center text-xs text-[#6b746e]">
                     No image preview
                   </div>
                 )}
               </div>
 
-              <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/50 space-y-2 text-xs">
-                <div className="flex items-center justify-between text-zinc-600 dark:text-zinc-400">
-                  <span>Assessor</span>
-                  <span className="font-mono text-[11px] font-medium text-zinc-900 dark:text-zinc-100">
+              <div className="rounded-sm border border-[#d8ddd7] bg-white p-3 space-y-2 text-xs">
+                <div className="flex items-center justify-between text-[#6b746e]">
+                  <span>Model Source</span>
+                  <span className="font-mono text-[11px] font-semibold text-[#151817]">
                     {isManualFallback ? "Manual Entry" : aiProvider || "Vision Model"}
                   </span>
                 </div>
-                <div className="flex items-center justify-between text-zinc-600 dark:text-zinc-400">
-                  <span>Storage</span>
-                  <span className="font-mono text-[11px] text-zinc-900 dark:text-zinc-100">
+                <div className="flex items-center justify-between text-[#6b746e]">
+                  <span>Storage Target</span>
+                  <span className="font-mono text-[11px] text-[#151817]">
                     item-photos
                   </span>
                 </div>
               </div>
 
               {/* Dynamic Impact Estimation Preview */}
-              <div className="rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900 space-y-2 text-xs">
-                <div className="font-medium text-zinc-900 dark:text-zinc-100">Estimated Impact</div>
+              <div className="rounded-sm border border-[#d8ddd7] bg-white p-3 space-y-2 text-xs">
+                <div className="font-semibold text-[#151817]">Projected Metrics Preview</div>
                 <div className="grid grid-cols-2 gap-2 font-mono text-[11px] pt-1">
-                  <div className="rounded border border-zinc-100 bg-zinc-50 p-1.5 dark:border-zinc-800 dark:bg-zinc-950">
-                    <span className="text-zinc-500">CO2e Saved</span>
-                    <div className="font-bold text-zinc-900 dark:text-zinc-100">
+                  <div className="rounded-sm border border-[#d8ddd7] bg-[#f4f5f1] p-2">
+                    <span className="text-[#6b746e] block text-[10px]">CO2e Avoided</span>
+                    <div className="font-bold text-[#151817]">
                       {liveImpact.co2e_saved_kg} kg
                     </div>
                   </div>
-                  <div className="rounded border border-zinc-100 bg-zinc-50 p-1.5 dark:border-zinc-800 dark:bg-zinc-950">
-                    <span className="text-zinc-500">Waste Avoided</span>
-                    <div className="font-bold text-zinc-900 dark:text-zinc-100">
+                  <div className="rounded-sm border border-[#d8ddd7] bg-[#f4f5f1] p-2">
+                    <span className="text-[#6b746e] block text-[10px]">Landfill Avoided</span>
+                    <div className="font-bold text-[#151817]">
                       {liveImpact.waste_avoided_kg} kg
                     </div>
                   </div>
@@ -507,49 +876,124 @@ export default function AnalyzePage() {
               </div>
             </div>
 
-            {/* Right Column: Editable Assessment Inputs */}
-            <div className="md:col-span-2 space-y-4 rounded-md border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-              <div className="border-b border-zinc-100 pb-3 dark:border-zinc-800">
-                <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                  Verify & Edit Item Details
-                </h3>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Review the assessment below. Correct any parameters before saving to the database.
-                </p>
+            {/* Right Column: Editable Form Fields */}
+            <div className="md:col-span-2 rounded-sm border border-[#d8ddd7] bg-white p-5 space-y-4">
+              <div className="border-b border-[#f4f5f1] pb-2 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-sm font-semibold text-[#151817]">
+                    Human Verification &amp; Calibration
+                  </h2>
+                  <p className="text-xs text-[#6b746e]">
+                    Confirm or correct the vision model extractions before committing to database.
+                  </p>
+                </div>
+                {aiProvider && (
+                  <span className="inline-flex items-center gap-1 rounded-sm border border-[#d8ddd7] bg-[#f4f5f1] px-2 py-0.5 font-mono text-[10px] text-[#2e7d57]">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#2e7d57]" />
+                    AI: {aiProvider} ({confidenceLevel} conf)
+                  </span>
+                )}
               </div>
 
-              {/* Item Type */}
+              {/* Low Confidence Notice */}
+              {isLowConfidence && (
+                <div className="rounded-sm border border-[#a3512b] bg-[#fff2ed] p-3 text-xs text-[#a3512b] flex items-start gap-2.5">
+                  <span className="font-bold flex-shrink-0 text-sm">⚠</span>
+                  <div className="space-y-0.5">
+                    <strong className="font-semibold block text-[#151817]">
+                      AI confidence: low — please verify
+                    </strong>
+                    <p className="text-[11.5px] text-[#6b746e] leading-relaxed">
+                      The vision model extracted a preliminary best guess ({formData.item_type || "unlisted electronic"}). Please confirm or select the closest matching category from the dropdown below.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Item Type: Predefined Dropdown + Free-Text refinement */}
               <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                  Item Type <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. laptop, smartphone, office chair, microwave"
-                  value={formData.item_type}
-                  onChange={(e) => setFormData({ ...formData, item_type: e.target.value })}
-                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 placeholder-zinc-400 focus:border-zinc-900 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-100"
-                />
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-[#151817]">
+                    Item Category / Type <span className="text-[#a3512b]">*</span>
+                  </label>
+                  <span className="text-[10px] text-[#6b746e]">Select category baseline or type custom</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <select
+                      value={
+                        ITEM_TYPE_PRESETS.find(
+                          (p) =>
+                            p.label.toLowerCase() === formData.item_type.toLowerCase() ||
+                            p.categoryKey.toLowerCase() === formData.item_type.toLowerCase() ||
+                            formData.item_type.toLowerCase().includes(p.categoryKey.toLowerCase())
+                        )?.label || "custom"
+                      }
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === "custom") {
+                          // Keep existing custom text
+                        } else {
+                          const preset = ITEM_TYPE_PRESETS.find((p) => p.label === val);
+                          setFormData({
+                            ...formData,
+                            item_type: val,
+                            estimated_age_years:
+                              !formData.estimated_age_years && preset
+                                ? String(preset.defaultAgeYears)
+                                : formData.estimated_age_years,
+                          });
+                        }
+                      }}
+                      className="w-full rounded-sm border border-[#d8ddd7] bg-white px-3 py-1.5 text-xs text-[#151817] focus:border-[#2e7d57] focus:outline-none"
+                    >
+                      <optgroup label="Standard Categories">
+                        {ITEM_TYPE_PRESETS.map((preset) => (
+                          <option key={preset.categoryKey} value={preset.label}>
+                            {preset.label}
+                          </option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Custom Option">
+                        <option value="custom">Other, please specify (Free-text)...</option>
+                      </optgroup>
+                    </select>
+                  </div>
+
+                  <div>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Item description / model (e.g. Sony CRT TV, VCR Player)"
+                      value={formData.item_type}
+                      onChange={(e) => setFormData({ ...formData, item_type: e.target.value })}
+                      className="w-full rounded-sm border border-[#d8ddd7] bg-white px-3 py-1.5 text-xs text-[#151817] placeholder-[#6b746e] focus:border-[#2e7d57] focus:outline-none"
+                    />
+                  </div>
+                </div>
+                <p className="text-[10.5px] text-[#6b746e]">
+                  Category baselines drive the deterministic PP-RI score, cradle-to-gate CO2e, and circular recovery matrix.
+                </p>
               </div>
 
               {/* Brand & Estimated Age */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                <div className="space-y-1">
+                  <label className="block text-xs font-semibold text-[#151817]">
                     Brand / Manufacturer
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. Dell, Apple, Samsung (optional)"
+                    placeholder="e.g. Sony, Panasonic, BPL, Onida, Philips"
                     value={formData.brand}
                     onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
-                    className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 placeholder-zinc-400 focus:border-zinc-900 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-100"
+                    className="w-full rounded-sm border border-[#d8ddd7] bg-white px-3 py-1.5 text-xs text-[#151817] placeholder-[#6b746e] focus:border-[#2e7d57] focus:outline-none"
                   />
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                <div className="space-y-1">
+                  <label className="block text-xs font-semibold text-[#151817]">
                     Estimated Age (Years)
                   </label>
                   <input
@@ -557,143 +1001,86 @@ export default function AnalyzePage() {
                     step="0.5"
                     min="0"
                     max="50"
-                    placeholder="e.g. 2.5 (optional)"
+                    placeholder="e.g. 15"
                     value={formData.estimated_age_years}
                     onChange={(e) =>
                       setFormData({ ...formData, estimated_age_years: e.target.value })
                     }
-                    className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 placeholder-zinc-400 focus:border-zinc-900 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-100"
+                    className="w-full rounded-sm border border-[#d8ddd7] bg-white px-3 py-1.5 text-xs font-mono text-[#151817] placeholder-[#6b746e] focus:border-[#2e7d57] focus:outline-none"
                   />
                 </div>
               </div>
 
-              {/* Condition Dropdown */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                  Assessed Condition <span className="text-red-500">*</span>
+              {/* Condition Select */}
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-[#151817]">
+                  Physical &amp; Operating Condition
                 </label>
                 <select
                   value={formData.condition}
                   onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      condition: e.target.value as AssessmentCondition,
-                    })
+                    setFormData({ ...formData, condition: e.target.value as AssessmentCondition })
                   }
-                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 focus:border-zinc-900 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-100"
+                  className="w-full rounded-sm border border-[#d8ddd7] bg-white px-3 py-1.5 text-xs text-[#151817] focus:border-[#2e7d57] focus:outline-none"
                 >
-                  <option value="functional">Functional (Working, normal wear)</option>
-                  <option value="cosmetic_damage">
-                    Cosmetic Damage (Scratches, minor exterior flaws)
-                  </option>
-                  <option value="partially_working">
-                    Partially Working (Faulty battery/subcomponent)
-                  </option>
-                  <option value="severely_damaged">
-                    Severely Damaged (Non-functional / E-waste ready)
-                  </option>
+                  <option value="functional">Functional (powers on, minimal cosmetic wear)</option>
+                  <option value="cosmetic_damage">Cosmetic Damage (scratches, dents, fully working)</option>
+                  <option value="partially_working">Partially Working (cracked screen, faulty port/battery)</option>
+                  <option value="severely_damaged">Severely Damaged (dead motherboard, heavy structural fracture)</option>
                 </select>
               </div>
 
               {/* Condition Notes */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                  Condition & Visual Observations
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-[#151817]">
+                  Specific Inspection Notes
                 </label>
                 <textarea
                   rows={2}
-                  placeholder="Notes on visible damage, screen integrity, missing parts..."
+                  placeholder="e.g. Minor scratches near charging port, screen glass intact, powers on normally."
                   value={formData.condition_notes}
                   onChange={(e) => setFormData({ ...formData, condition_notes: e.target.value })}
-                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 placeholder-zinc-400 focus:border-zinc-900 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-100"
+                  className="w-full rounded-sm border border-[#d8ddd7] bg-white px-3 py-1.5 text-xs text-[#151817] placeholder-[#6b746e] focus:border-[#2e7d57] focus:outline-none"
                 />
               </div>
 
-              {/* Action Buttons */}
-              <div className="flex items-center justify-between pt-4 border-t border-zinc-100 dark:border-zinc-800">
+              {/* Material Recoverable Checkbox */}
+              <div className="flex items-start gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="material_recoverable"
+                  checked={formData.material_recoverable}
+                  onChange={(e) =>
+                    setFormData({ ...formData, material_recoverable: e.target.checked })
+                  }
+                  className="mt-0.5 rounded-sm border-[#d8ddd7] text-[#2e7d57] focus:ring-[#2e7d57]"
+                />
+                <label htmlFor="material_recoverable" className="text-xs text-[#151817] cursor-pointer">
+                  Material is recoverable for recycling or certified parts harvesting
+                </label>
+              </div>
+
+              {/* Form Action Buttons */}
+              <div className="flex items-center justify-between pt-4 border-t border-[#f4f5f1]">
                 <button
                   type="button"
                   onClick={handleReset}
-                  disabled={step === "saving"}
-                  className="inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white px-4 py-2 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  className="rounded-sm border border-[#d8ddd7] bg-white px-3.5 py-1.5 text-xs font-medium text-[#151817] transition-colors hover:bg-[#e9ede7]"
                 >
-                  Upload Another
+                  &larr; Retake / New Photo
                 </button>
 
                 <button
                   type="submit"
                   disabled={step === "saving"}
-                  className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-5 py-2 text-xs font-medium text-white transition-colors hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                  className="inline-flex items-center justify-center rounded-sm bg-[#2e7d57] px-5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#246644] disabled:opacity-50"
                 >
-                  {step === "saving" ? "Saving Item..." : "Confirm & Save Item"}
+                  {step === "saving" ? "Saving Item..." : "Confirm & Save Item →"}
                 </button>
               </div>
             </div>
           </div>
         </form>
-      )}
-
-      {/* ========================================================================= */}
-      {/* STEP 4: SUCCESS STATE */}
-      {/* ========================================================================= */}
-      {step === "success" && (
-        <div className="rounded-md border border-zinc-200 bg-white p-8 dark:border-zinc-800 dark:bg-zinc-900 space-y-6 text-center">
-          <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-300">
-            <svg
-              className="h-5 w-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
-
-          <div className="space-y-1">
-            <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-              Item Saved to RE:LOOP
-            </h2>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              The item has been recorded in the database with verified condition metrics.
-            </p>
-          </div>
-
-          <div className="mx-auto max-w-sm rounded-md border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950 text-left text-xs font-mono space-y-1.5">
-            <div className="text-zinc-500">Item ID:</div>
-            <div className="truncate text-zinc-900 dark:text-zinc-100 font-semibold">
-              {savedItemId}
-            </div>
-            <div className="text-zinc-500 pt-1">Type & Condition:</div>
-            <div className="text-zinc-900 dark:text-zinc-100 capitalize">
-              {formData.item_type} ({formData.condition.replace("_", " ")})
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-            {savedItemId && (
-              <Link
-                href={`/analyze/${savedItemId}/results`}
-                className="inline-flex items-center justify-center rounded-md bg-zinc-900 px-5 py-2 text-xs font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-              >
-                View Circularity Results &rarr;
-              </Link>
-            )}
-            <button
-              type="button"
-              onClick={handleReset}
-              className="inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white px-4 py-2 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-            >
-              Analyze Another Item
-            </button>
-            <Link
-              href="/"
-              className="inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white px-4 py-2 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-            >
-              Back to Overview
-            </Link>
-          </div>
-        </div>
       )}
     </div>
   );

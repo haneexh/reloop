@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   evaluateItem,
+  formatItemDisplayName,
   PPRI_WEIGHT_COST_RATIO,
   PPRI_WEIGHT_CONDITION,
   PPRI_WEIGHT_AGE,
@@ -182,4 +183,174 @@ describe("RE:LOOP Decision Engine & PP-RI Unit Tests", () => {
     assert.ok(bd.condition_score >= 0 && bd.condition_score <= 10);
     assert.ok(bd.age_score >= 0 && bd.age_score <= 10);
   });
+
+  // Test 9: Verifies Reuse pathway scales economicValue correctly across all conditions
+  it("Test 9: Verifies Reuse economicValue scales by condition and zeroes out on severely_damaged", () => {
+    const baseInput = {
+      item_type: "smartphone",
+      brand: "Apple",
+      estimated_age_years: 0.5,
+      material_recoverable: true,
+    };
+
+    const functionalResult = evaluateItem({ ...baseInput, condition: "functional" });
+    const cosmeticResult = evaluateItem({ ...baseInput, condition: "cosmetic_damage" });
+    const partialResult = evaluateItem({ ...baseInput, condition: "partially_working" });
+    const severeResult = evaluateItem({ ...baseInput, condition: "severely_damaged" });
+
+    const getReuse = (res: typeof functionalResult) =>
+      res.pathways.find((p) => p.action === "reuse")!;
+
+    const functionalReuse = getReuse(functionalResult);
+    const cosmeticReuse = getReuse(cosmeticResult);
+    const partialReuse = getReuse(partialResult);
+    const severeReuse = getReuse(severeResult);
+
+    // Functional: Full utility avoided
+    assert.ok(functionalReuse.economicValue > 20000, `Expected > 20000, got ${functionalReuse.economicValue}`);
+    assert.equal(functionalReuse.economicLabel, "Replacement purchase avoided");
+
+    // Cosmetic damage: ~90% of base utility
+    assert.ok(cosmeticReuse.economicValue < functionalReuse.economicValue);
+    assert.ok(cosmeticReuse.economicValue > partialReuse.economicValue);
+
+    // Partially working: ~30% of base utility with clear degraded label
+    assert.ok(partialReuse.economicValue < cosmeticReuse.economicValue);
+    assert.equal(partialReuse.economicLabel, "Partial utility preserved");
+
+    // Severely damaged: Exactly 0 value and plain non-functional label
+    assert.equal(severeReuse.economicValue, 0);
+    assert.equal(severeReuse.co2eAvoided, 0);
+    assert.equal(severeReuse.economicLabel, "Non-functional (no purchase avoided)");
+    assert.ok(severeReuse.rationale.includes("Non-functional condition prevents direct reuse"));
+  });
+
+  // Test 10: Verifies CRT TV baseline data, sensible PP-RI, and recycling / donation routing
+  it("Test 10: 15-year-old CRT TV evaluates with specific heavy-hardware baselines and sensible score", () => {
+    const crtResult = evaluateItem({
+      item_type: "CRT Television / Tube TV",
+      brand: "Sony",
+      estimated_age_years: 15.0,
+      condition: "functional",
+      material_recoverable: true,
+    });
+
+    // 15-year old functional CRT TV:
+    // Should resolve to crt_tv baseline (24kg weight, 320kg production CO2e)
+    assert.equal(crtResult.waste_avoided_kg, 24.0);
+    assert.ok(crtResult.ppri_score > 0, `Expected positive PP-RI score, got ${crtResult.ppri_score}`);
+    assert.ok(crtResult.resale_value_est > 0);
+    assert.ok(crtResult.repair_cost_est > 0);
+    assert.ok(["donate", "reuse", "recycle"].includes(crtResult.recommended_action));
+
+    // Verify all 6 pathways exist with non-zero metrics
+    const pathways = crtResult.pathways;
+    assert.equal(pathways.length, 6);
+    const recyclePathway = pathways.find((p) => p.action === "recycle")!;
+    assert.ok(recyclePathway.co2eAvoided > 50, `Expected > 50 kg CO2e for CRT recycling, got ${recyclePathway.co2eAvoided}`);
+    assert.ok(recyclePathway.economicValue > 500, `Expected scrap value > 500 for 24kg CRT, got ${recyclePathway.economicValue}`);
+  });
+
+  // Test 11: Verifies resolution for all expanded legacy electronics
+  it("Test 11: Correctly matches diverse synonyms for legacy hardware", () => {
+    const vcr = evaluateItem({ item_type: "Vintage VHS VCR Deck", condition: "partially_working" });
+    assert.equal(vcr.waste_avoided_kg, 3.5);
+
+    const desktop = evaluateItem({ item_type: "Custom Gaming PC Tower", condition: "functional" });
+    assert.equal(desktop.waste_avoided_kg, 8.5);
+
+    const landline = evaluateItem({ item_type: "Panasonic Cordless Landline Phone", condition: "functional" });
+    assert.equal(landline.waste_avoided_kg, 0.7);
+
+    const featurePhone = evaluateItem({ item_type: "Nokia 3310 Keypad Phone", condition: "functional" });
+    assert.equal(featurePhone.waste_avoided_kg, 0.15);
+
+    const printer = evaluateItem({ item_type: "HP LaserJet All-in-One Printer", condition: "partially_working" });
+    assert.equal(printer.waste_avoided_kg, 6.5);
+  });
+
+  // Test 12: formatItemDisplayName preserves acronyms and avoids duplicated brand strings
+  it("Test 12: formatItemDisplayName preserves acronyms and avoids duplicated brand strings", () => {
+    assert.equal(
+      formatItemDisplayName("Sony", "CRT Television / Tube TV"),
+      "Sony CRT Television / Tube TV"
+    );
+    assert.equal(
+      formatItemDisplayName("Sony", "crt_tv"),
+      "Sony CRT Television / Tube TV"
+    );
+    assert.equal(
+      formatItemDisplayName("Lenovo", "Lenovo ThinkPad Laptop"),
+      "Lenovo ThinkPad Laptop"
+    );
+    assert.equal(
+      formatItemDisplayName("LG", "vcr / dvd / media player"),
+      "LG VCR / DVD / Media Player"
+    );
+    assert.equal(
+      formatItemDisplayName("Dell", "desktop_pc"),
+      "Dell Desktop PC / Tower"
+    );
+  });
+
+  // Test 13: Recommended pathway always has rank 1 and highest viability score
+  it("Test 13: Recommended pathway always has rank 1 and highest viability score across diverse hardware", () => {
+    const testCases = [
+      { item_type: "CRT Television / Tube TV", brand: "Sony", estimated_age_years: 15, condition: "functional" as const },
+      { item_type: "Laptop / Notebook", brand: "Apple", estimated_age_years: 1, condition: "functional" as const },
+      { item_type: "Laptop / Notebook", brand: "Lenovo", estimated_age_years: 3, condition: "cosmetic_damage" as const },
+      { item_type: "Tablet", brand: "Samsung", estimated_age_years: 2, condition: "partially_working" as const },
+      { item_type: "Smartphone", brand: "Google", estimated_age_years: 5, condition: "severely_damaged" as const },
+    ];
+
+    for (const tc of testCases) {
+      const res = evaluateItem({ ...tc, material_recoverable: true });
+      const recPathway = res.pathways.find((p) => p.isRecommended);
+      assert.ok(recPathway, `No recommended pathway flagged for ${tc.item_type}`);
+      assert.equal(recPathway.rank, 1, `Recommended pathway rank should be 1, got ${recPathway.rank}`);
+      assert.equal(recPathway.action, res.recommended_action);
+
+      // Verify recPathway viability is >= all other pathways
+      for (const p of res.pathways) {
+        assert.ok(
+          recPathway.viability >= p.viability,
+          `Recommended ${recPathway.action} viability (${recPathway.viability}) must be >= ${p.action} (${p.viability}) for ${tc.item_type}`
+        );
+      }
+    }
+  });
+
+  // Test 14: Pathways array must be strictly sorted in descending order of viability score
+  it("Test 14: Pathways array is strictly sorted in descending order of viability score across diverse hardware", () => {
+    const testCases = [
+      { item_type: "CRT Television / Tube TV", brand: "Sony", estimated_age_years: 15, condition: "functional" as const },
+      { item_type: "Laptop / Notebook", brand: "Apple", estimated_age_years: 1, condition: "functional" as const },
+      { item_type: "Laptop / Notebook", brand: "Lenovo", estimated_age_years: 3, condition: "cosmetic_damage" as const },
+      { item_type: "Tablet", brand: "Samsung", estimated_age_years: 2, condition: "partially_working" as const },
+      { item_type: "Smartphone", brand: "Google", estimated_age_years: 5, condition: "severely_damaged" as const },
+      { item_type: "Vintage VHS VCR Deck", brand: "Panasonic", estimated_age_years: 12, condition: "functional" as const },
+      { item_type: "Printer / Scanner", brand: "HP", estimated_age_years: 4, condition: "partially_working" as const },
+    ];
+
+    for (const tc of testCases) {
+      const res = evaluateItem({ ...tc, material_recoverable: true });
+      const pathways = res.pathways;
+
+      assert.equal(pathways.length, 6, `Expected 6 pathways for ${tc.item_type}`);
+
+      // Generic assertion: pathways[i].viability >= pathways[i+1].viability for all consecutive pairs
+      for (let i = 0; i < pathways.length - 1; i++) {
+        const current = pathways[i];
+        const next = pathways[i + 1];
+        assert.ok(
+          current.viability >= next.viability,
+          `Viability sort violation for ${tc.item_type} at index ${i} -> ${i + 1}: ` +
+            `${current.title} (${current.viability}) should be >= ${next.title} (${next.viability}). ` +
+            `Full order: [${pathways.map((p) => `${p.title}:${p.viability}`).join(", ")}]`
+        );
+      }
+    }
+  });
 });
+
+

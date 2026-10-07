@@ -1,36 +1,187 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+@import 'leaflet/dist/leaflet.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --background: #fafafa;
-  --foreground: #09090b;
-  --muted: #71717a;
-  --border: #e4e4e7;
-  --card: #ffffff;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #09090b;
-    --foreground: #f4f4f5;
-    --muted: #a1a1aa;
-    --border: #27272a;
-    --card: #121215;
-  }
+  --bg: #f4f5f1;
+  --surface: #ffffff;
+  --surface-2: #e9ede7;
+  --ink: #151817;
+  --muted: #6b746e;
+  --border: #d8ddd7;
+  --green: #2e7d57;
+  --deep: #173d2c;
+  --amber: #b7791f;
+  --rust: #a3512b;
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  margin: 0;
+  background-color: var(--bg);
+  color: var(--ink);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
-  }
+/* Typography styles */
+h1, h2, h3, .font-display {
+  font-family: 'Space Grotesk', sans-serif;
 }
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Semi-circular PP-RI Gauge */
+.gauge {
+  margin: 28px auto 0;
+  width: 220px;
+  height: 110px;
+  border: 18px solid #e7ebe5;
+  border-bottom: 0;
+  border-radius: 220px 220px 0 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.gauge:before {
+  content: '';
+  position: absolute;
+  inset: -18px -18px 0;
+  border: 18px solid var(--green);
+  border-bottom: 0;
+  border-radius: 220px 220px 0 0;
+  transform-origin: 50% 100%;
+  transform: rotate(calc(var(--gauge-degrees, 0deg) - 90deg));
+  clip-path: inset(0 0 0 50%);
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.gauge-inner {
+  position: absolute;
+  inset: 38px 0 auto;
+  text-align: center;
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 3px;
+}
+
+.gauge-inner strong {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 44px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.gauge-inner span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* Bar track for comparison matrices */
+.bar-track {
+  width: 100%;
+  height: 6px;
+  background: #e1e6df;
+  overflow: hidden;
+  border-radius: 2px;
+}
+
+.bar-track span {
+  display: block;
+  height: 100%;
+  background: var(--green);
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+
+/* Process Rail */
+.process-rail {
+  list-style: none;
+  display: flex;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.process-rail li {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  border-right: 1px solid var(--border);
+  color: #a1aaa4;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.process-rail li:first-child {
+  border-left: 1px solid var(--border);
+}
+
+.process-rail li.is-active {
+  color: var(--green);
+}
+
+.process-index {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 13px;
+  padding-left: 14px;
+}
+
+/* Custom scrollbar matching paper aesthetic */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #e9ede7;
+}
+::-webkit-scrollbar-thumb {
+  background: #c2c8c0;
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #6b746e;
+}
+
+/* Crisp outline focus */
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+
+/* Leaflet Street Tile Rendering & Sizing Fixes */
+.leaflet-container {
+  width: 100% !important;
+  height: 100% !important;
+  z-index: 10;
+  background-color: #f2efe9 !important; /* OpenStreetMap default land canvas */
+}
+
+.leaflet-container img {
+  max-width: none !important;
+  max-height: none !important;
+  display: block;
+}
+
+.leaflet-tile {
+  max-width: none !important;
+  max-height: none !important;
+  visibility: inherit !important;
+}
+
+.leaflet-tile-container {
+  pointer-events: none;
+}
+
