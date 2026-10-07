@@ -82,3 +82,28 @@ export function calculateCircularImpact({
     wasteAvoidedKg: Math.max(0.1, wasteAvoidedKg),
   };
 }
+
+export function calculateImpact(
+  itemType: string,
+  condition: string,
+  estimatedAgeYears?: number | null,
+  weightKg?: number | null
+): { co2eSavedKg: number; wasteAvoidedKg: number } {
+  const res = calculateCircularImpact({
+    itemType,
+    condition,
+    estimatedAgeYears: estimatedAgeYears ?? 2,
+  });
+
+  const finalWaste = weightKg && weightKg > 0 ? weightKg : res.wasteAvoidedKg;
+  const co2e =
+    weightKg && weightKg > 0 && res.wasteAvoidedKg > 0
+      ? Math.round(res.co2eSavedEst * (weightKg / res.wasteAvoidedKg))
+      : res.co2eSavedEst;
+
+  return {
+    co2eSavedKg: Math.max(1, co2e),
+    wasteAvoidedKg: Math.max(0.1, finalWaste),
+  };
+}
+

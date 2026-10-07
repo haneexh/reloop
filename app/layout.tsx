@@ -36,6 +36,12 @@ export default function RootLayout({
               </Link>
               <nav className="hidden sm:flex items-center gap-6 text-xs font-medium text-[#6b746e]">
                 <Link
+                  href="/request"
+                  className="hover:text-[#2e7d57] transition-colors font-semibold text-[#151817]"
+                >
+                  Schedule Pickup
+                </Link>
+                <Link
                   href="/analyze"
                   className="hover:text-[#2e7d57] transition-colors"
                 >

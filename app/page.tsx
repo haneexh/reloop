@@ -51,10 +51,16 @@ export default async function Home() {
 
             <div className="flex flex-wrap items-center gap-3 pt-2">
               <Link
+                href="/request"
+                className="inline-flex items-center justify-center rounded-sm bg-[#9ec4ad] px-5 py-3 text-xs font-bold text-[#151817] transition-transform hover:-translate-y-0.5 hover:bg-[#b5d6c1]"
+              >
+                Schedule Doorstep Pickup &rarr;
+              </Link>
+              <Link
                 href="/analyze"
                 className="inline-flex items-center justify-center rounded-sm bg-white px-5 py-3 text-xs font-bold text-[#151817] transition-transform hover:-translate-y-0.5 hover:bg-[#f4f5f1]"
               >
-                Start Assessment &rarr;
+                Start Assessment
               </Link>
               <Link
                 href="/destinations"
