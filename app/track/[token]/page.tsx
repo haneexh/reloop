@@ -302,6 +302,29 @@ export default function TrackRequestPage({
                     </div>
                   </div>
                 )}
+
+                {/* Facility Milestone Badge */}
+                {data.status === "sent_to_facility" && (
+                  <div className="rounded-sm bg-[#eef3f7] border border-[#b8d0e2] p-3 text-xs text-[#1c4b6e] space-y-1">
+                    <div className="font-bold flex items-center gap-1.5">
+                      <span>🏭</span> Dispatched to Accredited Recovery Partner
+                    </div>
+                    <p className="text-[11px] text-[#2b597c]">
+                      Parcel has arrived at municipal segregation facility for de-manufacturing and component harvesting.
+                    </p>
+                  </div>
+                )}
+
+                {data.status === "recovered" && (
+                  <div className="rounded-sm bg-[#edf5f0] border border-[#bcdbc8] p-3 text-xs text-[#1e583c] space-y-1">
+                    <div className="font-bold flex items-center gap-1.5">
+                      <span>♻</span> Circular Loop Complete
+                    </div>
+                    <p className="text-[11px] text-[#246644]">
+                      Materials successfully refurbished or processed for smelting. Zero landfill contamination achieved.
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Items Manifest */}
