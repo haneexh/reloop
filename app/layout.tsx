@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,6 +16,7 @@ export const metadata: Metadata = {
 };
 
 import { Navigation } from "@/components/Navigation";
+import { Footer } from "@/components/Footer";
 
 export default function RootLayout({
   children,
@@ -32,29 +32,7 @@ export default function RootLayout({
           {children}
         </main>
 
-        <footer className="border-t border-[#d8ddd7] bg-[#e9ede7] py-6 text-xs text-[#6b746e]">
-          <div className="mx-auto flex max-w-5xl flex-col items-start justify-between gap-4 px-4 sm:flex-row sm:items-center sm:px-6">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-              <p className="font-mono text-[11px] text-[#151817]">
-                RE:LOOP | Circular Lifecycle Intelligence Platform
-              </p>
-              <span className="hidden sm:inline text-[#d8ddd7]">·</span>
-              <div className="flex items-center gap-3 text-[11px]">
-                <Link href="/privacy" className="hover:text-[#151817] underline underline-offset-2 transition-colors">
-                  Privacy Policy
-                </Link>
-                <span>·</span>
-                <Link href="/terms" className="hover:text-[#151817] underline underline-offset-2 transition-colors">
-                  Terms of Service
-                </Link>
-              </div>
-            </div>
-
-            <span className="font-mono text-[11px] text-[#6b746e]">
-              Deterministic scoring · No black-box AI
-            </span>
-          </div>
-        </footer>
+        <Footer />
       </body>
     </html>
   );

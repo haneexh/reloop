@@ -79,17 +79,23 @@ export function Navigation() {
               Schedule Pickup
             </Link>
 
-            <button
-              onClick={() => setIsTrackOpen(!isTrackOpen)}
-              type="button"
-              className={`transition-colors hover:text-[#151817] flex items-center gap-1 ${
+            <Link
+              href="/track"
+              className={`transition-colors hover:text-[#151817] ${
                 pathname.startsWith("/track")
                   ? "text-[#151817] font-semibold border-b-2 border-[#2e7d57] pb-1 -mb-1"
                   : ""
               }`}
             >
-              <span>Track Pickup</span>
-            </button>
+              Track Pickup
+            </Link>
+
+            <Link
+              href="/#how-it-works"
+              className="transition-colors hover:text-[#151817]"
+            >
+              How It Works
+            </Link>
 
             <Link
               href="/destinations"
@@ -100,17 +106,6 @@ export function Navigation() {
               }`}
             >
               Destinations
-            </Link>
-
-            <Link
-              href="/analyze"
-              className={`transition-colors hover:text-[#151817] ${
-                pathname.startsWith("/analyze")
-                  ? "text-[#151817] font-semibold border-b-2 border-[#2e7d57] pb-1 -mb-1"
-                  : ""
-              }`}
-            >
-              Item Assessment
             </Link>
           </nav>
         </div>
@@ -131,7 +126,7 @@ export function Navigation() {
               }`}
             >
               <span className="h-1.5 w-1.5 rounded-full bg-[#2e7d57]" />
-              <span>Operations Hub</span>
+              <span>Operations</span>
               <span className="text-[10px] text-[#6b746e]">▾</span>
             </button>
 
@@ -139,29 +134,29 @@ export function Navigation() {
               <div className="absolute right-0 mt-2 w-56 rounded-[3px] border border-[#d8ddd7] bg-white p-1.5 shadow-sm">
                 <div className="px-2.5 py-1.5 border-b border-[#d8ddd7] mb-1">
                   <span className="text-[10px] font-mono uppercase tracking-wider text-[#6b746e] block">
-                    Municipal Operations
+                    Operations Portal
                   </span>
                 </div>
                 <Link
                   href="/dispatch"
                   className="flex flex-col px-2.5 py-2 rounded-[2px] text-xs text-[#151817] hover:bg-[#f4f5f1] transition-colors"
                 >
-                  <span className="font-semibold">Dispatch Ops</span>
-                  <span className="text-[11px] text-[#6b746e]">Demand heatmaps &amp; CVRP routing</span>
+                  <span className="font-semibold">Dispatch</span>
+                  <span className="text-[11px] text-[#6b746e]">Demand analysis &amp; route planning</span>
                 </Link>
                 <Link
                   href="/collector"
                   className="flex flex-col px-2.5 py-2 rounded-[2px] text-xs text-[#151817] hover:bg-[#f4f5f1] transition-colors"
                 >
-                  <span className="font-semibold text-[#2e7d57]">Collector Ops</span>
-                  <span className="text-[11px] text-[#6b746e]">Driver manifest &amp; scale verify</span>
+                  <span className="font-semibold text-[#2e7d57]">Collector</span>
+                  <span className="text-[11px] text-[#6b746e]">Field manifest &amp; scale verification</span>
                 </Link>
                 <Link
                   href="/dashboard"
                   className="flex flex-col px-2.5 py-2 rounded-[2px] text-xs text-[#151817] hover:bg-[#f4f5f1] transition-colors"
                 >
-                  <span className="font-semibold">Recovery &amp; Impact</span>
-                  <span className="text-[11px] text-[#6b746e]">Mass balance &amp; eco-fleet ledger</span>
+                  <span className="font-semibold">Impact</span>
+                  <span className="text-[11px] text-[#6b746e]">Facility transfer &amp; recovery ledger</span>
                 </Link>
               </div>
             )}
@@ -235,62 +230,65 @@ export function Navigation() {
             </span>
             <Link
               href="/request"
-              className="flex items-center justify-between px-2.5 py-2 rounded-[3px] text-xs font-semibold text-[#151817] bg-white border border-[#d8ddd7]"
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="flex items-center justify-between px-3 py-2.5 rounded-[3px] text-xs font-semibold text-[#151817] bg-white border border-[#d8ddd7]"
             >
               <span>Schedule Pickup</span>
-              <span className="text-[#2e7d57]">&rarr;</span>
+              <span className="text-[#2e7d57] font-bold">&rarr;</span>
             </Link>
-            <button
-              onClick={() => {
-                setIsMobileMenuOpen(false);
-                setIsTrackOpen(true);
-              }}
-              type="button"
-              className="w-full text-left flex items-center justify-between px-2.5 py-2 rounded-[3px] text-xs font-medium text-[#151817] hover:bg-white"
+            <Link
+              href="/track"
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="flex items-center justify-between px-3 py-2.5 rounded-[3px] text-xs font-medium text-[#151817] hover:bg-white"
             >
-              <span>Track Existing Pickup</span>
-              <span className="text-xs text-[#6b746e]">🔍</span>
-            </button>
+              <span>Track Pickup</span>
+              <span className="text-xs text-[#6b746e] font-mono">Token lookup</span>
+            </Link>
+            <Link
+              href="/#how-it-works"
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="flex items-center justify-between px-3 py-2.5 rounded-[3px] text-xs font-medium text-[#151817] hover:bg-white"
+            >
+              <span>How It Works</span>
+              <span className="text-xs text-[#6b746e]">3 Steps</span>
+            </Link>
             <Link
               href="/destinations"
-              className="flex items-center justify-between px-2.5 py-2 rounded-[3px] text-xs font-medium text-[#151817] hover:bg-white"
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="flex items-center justify-between px-3 py-2.5 rounded-[3px] text-xs font-medium text-[#151817] hover:bg-white"
             >
-              <span>Destination Directory</span>
-              <span className="text-xs text-[#6b746e]">40 nodes</span>
-            </Link>
-            <Link
-              href="/analyze"
-              className="flex items-center justify-between px-2.5 py-2 rounded-[3px] text-xs font-medium text-[#151817] hover:bg-white"
-            >
-              <span>Item Circular Assessment</span>
-              <span className="text-xs text-[#6b746e]">PP-RI</span>
+              <span>Destinations &amp; Centers</span>
+              <span className="text-xs text-[#6b746e]">Directory</span>
             </Link>
           </div>
 
           <div className="space-y-1 pt-2 border-t border-[#d8ddd7]">
             <span className="text-[10px] font-mono uppercase tracking-wider text-[#6b746e] px-2 block">
-              Operations &amp; Logistics
+              Operations Portal
             </span>
             <Link
               href="/dispatch"
-              className="flex items-center justify-between px-2.5 py-2 rounded-[3px] text-xs font-medium text-[#151817] hover:bg-white"
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="flex items-center justify-between px-3 py-2.5 rounded-[3px] text-xs font-medium text-[#151817] hover:bg-white"
             >
-              <span>Dispatch Ops</span>
-              <span className="text-[10px] font-mono text-[#6b746e]">CVRP</span>
+              <span>Dispatch</span>
+              <span className="text-[10px] font-mono text-[#6b746e]">Fleet &amp; Routes</span>
             </Link>
             <Link
               href="/collector"
-              className="flex items-center justify-between px-2.5 py-2 rounded-[3px] text-xs font-semibold text-[#2e7d57] hover:bg-white"
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="flex items-center justify-between px-3 py-2.5 rounded-[3px] text-xs font-semibold text-[#2e7d57] hover:bg-white"
             >
-              <span>Collector Mobile Interface</span>
-              <span className="text-[10px] font-mono text-[#2e7d57]">Driver</span>
+              <span>Collector</span>
+              <span className="text-[10px] font-mono text-[#2e7d57]">Driver Manifest</span>
             </Link>
             <Link
               href="/dashboard"
-              className="flex items-center justify-between px-2.5 py-2 rounded-[3px] text-xs font-medium text-[#151817] hover:bg-white"
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="flex items-center justify-between px-3 py-2.5 rounded-[3px] text-xs font-medium text-[#151817] hover:bg-white"
             >
-              <span>Recovery &amp; Impact Ledger</span>
-              <span className="text-[10px] font-mono text-[#6b746e]">Metrics</span>
+              <span>Impact</span>
+              <span className="text-[10px] font-mono text-[#6b746e]">Mass Balance</span>
             </Link>
           </div>
         </div>
