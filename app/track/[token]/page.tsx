@@ -94,8 +94,8 @@ export default function TrackRequestPage({
     }
   }, [token]);
 
-  // Determine stage progression index
-  const getStageIndex = (status: string) => {
+  // Determine stage progression index based on status and certified collection record
+  const getStageIndex = (status: string, hasVerifiedRecord: boolean) => {
     switch (status) {
       case "pending":
         return 0;
@@ -104,7 +104,8 @@ export default function TrackRequestPage({
       case "assigned":
         return 2;
       case "collected":
-        return 3;
+        // If collection record with actual scale weight exists, advance through Weighed
+        return hasVerifiedRecord ? 4 : 3;
       case "weighed":
       case "sorted":
         return 4;
@@ -117,7 +118,9 @@ export default function TrackRequestPage({
     }
   };
 
-  const currentStageIndex = data ? getStageIndex(data.status) : 0;
+  const currentStageIndex = data
+    ? getStageIndex(data.status, Boolean(data.verifiedRecords && data.verifiedRecords.length > 0))
+    : 0;
 
   return (
     <div className="space-y-8">
@@ -266,18 +269,36 @@ export default function TrackRequestPage({
 
                 {/* Verified Weight Badge if weighed */}
                 {data.verifiedRecords && data.verifiedRecords.length > 0 && (
-                  <div className="rounded-sm bg-[#edf5f0] border border-[#bcdbc8] p-3 text-xs text-[#1e583c] space-y-1">
-                    <div className="font-bold flex items-center gap-1.5">
-                      <span>✓</span> Certified Scale Verification
+                  <div className="rounded-sm bg-[#edf5f0] border border-[#bcdbc8] p-3 text-xs text-[#1e583c] space-y-1.5">
+                    <div className="font-bold flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <span>✓</span> Certified Scale Verification Complete
+                      </span>
+                      <span className="font-mono text-[11px] text-[#2e7d57] uppercase font-semibold">
+                        Chain of Custody Verified
+                      </span>
                     </div>
-                    <div className="font-mono">
-                      Actual Weighed Load:{" "}
-                      <strong>{data.verifiedRecords[0].actual_weight_kg} kg</strong>
+                    <div className="flex items-center gap-4 font-mono">
+                      <div>
+                        Actual Weighed Load:{" "}
+                        <strong className="text-base text-[#151817]">
+                          {data.verifiedRecords[0].actual_weight_kg} kg
+                        </strong>
+                      </div>
+                      {data.estimatedWeightKg > 0 && (
+                        <div className="text-[11px] text-[#6b746e]">
+                          Intake Est: {data.estimatedWeightKg} kg (
+                          {data.verifiedRecords[0].actual_weight_kg >= data.estimatedWeightKg
+                            ? `+${(data.verifiedRecords[0].actual_weight_kg - data.estimatedWeightKg).toFixed(1)} kg`
+                            : `${(data.verifiedRecords[0].actual_weight_kg - data.estimatedWeightKg).toFixed(1)} kg`}
+                          )
+                        </div>
+                      )}
                     </div>
                     <div className="text-[10px] text-[#2e7d57]">
-                      Verified at:{" "}
+                      Recorded:{" "}
                       {new Date(data.verifiedRecords[0].verified_at).toLocaleString()} via{" "}
-                      {data.verifiedRecords[0].verification_method || "digital_scale"}
+                      {data.verifiedRecords[0].verification_method || "qr_scan"}
                     </div>
                   </div>
                 )}
