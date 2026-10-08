@@ -54,6 +54,12 @@ export default function RootLayout({
                   Destination Directory
                 </Link>
                 <Link
+                  href="/dispatch"
+                  className="hover:text-[#2e7d57] transition-colors"
+                >
+                  Dispatch Ops
+                </Link>
+                <Link
                   href="/dashboard"
                   className="hover:text-[#2e7d57] transition-colors"
                 >
