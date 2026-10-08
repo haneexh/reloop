@@ -133,4 +133,18 @@ describe("PS-013 Recovery Workflow & Material Breakdown Tests", () => {
     assert.equal(isAuthorizedRecoveryOperator("COLLECTOR"), false);
     assert.equal(isAuthorizedRecoveryOperator(""), false);
   });
+
+  // 11b. Invariant 6: Rejects transferring already transferred requests
+  it("Scenario 11b: rejects transferring request that has already been transferred (Invariant 6)", () => {
+    const alreadyTransferredRecords = [
+      { id: "rec-transferred", actual_weight_kg: 12.0, request_id: "req-transferred", request_status: "sent_to_facility" },
+    ];
+    const res = validateTransferBatch({
+      facility: sampleFacility,
+      collectionRecords: alreadyTransferredRecords,
+    });
+    assert.equal(res.valid, false);
+    assert.match(res.error || "", /already been transferred/);
+  });
 });
+

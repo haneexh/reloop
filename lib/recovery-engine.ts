@@ -153,6 +153,13 @@ export function validateTransferBatch(params: {
         error: `Cannot transfer uncollected request ${rec.request_id} (Status: ${rec.request_status}).`,
       };
     }
+    // Invariant 6: The same collected mass cannot be transferred twice
+    if (rec.request_status === "sent_to_facility" || rec.request_status === "recovered") {
+      return {
+        valid: false,
+        error: `Cannot transfer request ${rec.request_id} which has already been transferred (Status: ${rec.request_status}).`,
+      };
+    }
     sumWeight += w;
   }
 

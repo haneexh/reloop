@@ -3,9 +3,9 @@ import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "RE:LOOP | Post-Purchase Circularity Decision Engine",
+  title: "RE:LOOP | Community E-Waste Collection Optimizer & Circular Recovery",
   description:
-    "Transparent post-purchase circular routing, PP-RI scoring, and physical destination routing for discarded electronics.",
+    "Intelligent municipal e-waste collection optimizer: capacity-aware fleet scheduling, CVRP route optimization, doorstep QR scale verification, and circular recovery mass balance.",
   icons: {
     icon: [
       { url: "/icon.svg", type: "image/svg+xml" },
@@ -34,7 +34,7 @@ export default function RootLayout({
                 <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[#2e7d57]"></span>
                 <span>RE:LOOP</span>
               </Link>
-              <nav className="hidden sm:flex items-center gap-6 text-xs font-medium text-[#6b746e]">
+              <nav className="hidden sm:flex items-center gap-5 text-xs font-medium text-[#6b746e]">
                 <Link
                   href="/request"
                   className="hover:text-[#2e7d57] transition-colors font-semibold text-[#151817]"
@@ -42,20 +42,8 @@ export default function RootLayout({
                   Schedule Pickup
                 </Link>
                 <Link
-                  href="/analyze"
-                  className="hover:text-[#2e7d57] transition-colors"
-                >
-                  Intake Assessment
-                </Link>
-                <Link
-                  href="/destinations"
-                  className="hover:text-[#2e7d57] transition-colors"
-                >
-                  Destination Directory
-                </Link>
-                <Link
                   href="/dispatch"
-                  className="hover:text-[#2e7d57] transition-colors"
+                  className="hover:text-[#2e7d57] transition-colors font-semibold text-[#151817]"
                 >
                   Dispatch Ops
                 </Link>
@@ -67,9 +55,21 @@ export default function RootLayout({
                 </Link>
                 <Link
                   href="/dashboard"
-                  className="hover:text-[#2e7d57] transition-colors"
+                  className="hover:text-[#2e7d57] transition-colors font-semibold text-[#151817]"
                 >
-                  Ledger &amp; Fleet
+                  Recovery &amp; Impact
+                </Link>
+                <Link
+                  href="/analyze"
+                  className="hover:text-[#2e7d57] transition-colors text-[#6b746e]"
+                >
+                  Item Assessment
+                </Link>
+                <Link
+                  href="/destinations"
+                  className="hover:text-[#2e7d57] transition-colors text-[#6b746e]"
+                >
+                  Destinations
                 </Link>
               </nav>
             </div>

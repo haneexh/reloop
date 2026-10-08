@@ -342,7 +342,7 @@ export default function ResultsPage() {
               Deterministic, not mysterious.
             </h4>
             <p className="text-xs text-[#6b746e] leading-relaxed">
-              The PP-RI score weighs repair ratio (45%), physical wear (35%), and hardware age (20%). The circular rules compare viability across all six pathways before proposing the optimal route.
+              The PP-RI score weighs repair ratio (45%), physical wear (35%), and hardware age (20%). The circular rules compare viability across all six pathways before proposing the recommended circular pathway.
             </p>
             <div className="pt-1">
               <Link

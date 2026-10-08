@@ -49,14 +49,30 @@ export async function GET() {
       console.error("Error fetching items for sustainability:", itemErr);
     }
 
-    // 6. Compute metrics
+    // 6. Fetch distance saved dynamically from ROUTE_OPTIMIZED events in event_log
+    const { data: optEvents } = await supabase
+      .from("event_log")
+      .select("payload_json")
+      .eq("event_type", "ROUTE_OPTIMIZED");
+
+    let dynamicSavedKm = 0;
+    if (optEvents && optEvents.length > 0) {
+      for (const ev of optEvents) {
+        const payload = ev.payload_json as Record<string, unknown> | null;
+        if (payload && typeof payload.distance_saved_km === "number") {
+          dynamicSavedKm += Number(payload.distance_saved_km);
+        }
+      }
+    }
+
+    // 7. Compute metrics strictly from database records
     const metrics = computeSustainabilityMetrics({
       requests: requests || [],
       collectionRecords: records || [],
       transfers: transfers || [],
       routes: routes || [],
       items: items || [],
-      baselineDistanceSavedKm: 28.5, // verified baseline savings from route optimizer runs
+      baselineDistanceSavedKm: Math.round(dynamicSavedKm * 10) / 10,
     });
 
     return NextResponse.json({
