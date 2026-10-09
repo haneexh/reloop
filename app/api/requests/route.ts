@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin as supabase } from "@/lib/supabase";
 import { resolveZoneByCoordinates, getCollectionZones } from "@/lib/zone-resolver";
 import { calculateImpact } from "@/lib/impact-calculator";
 import crypto from "crypto";

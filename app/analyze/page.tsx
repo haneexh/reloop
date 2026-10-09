@@ -288,7 +288,7 @@ export default function AnalyzePage() {
       if (responseJson.not_electronic || (!responseJson.success && responseJson.not_electronic)) {
         const rejectionMsg =
           responseJson.message ||
-          "RE:LOOP currently only assesses electronic items. This photo doesn't appear to show an electronic device — please upload a photo of an electronic item instead.";
+          "RE:LOOP currently only assesses electronic items. This photo doesn't appear to show an electronic device. Please upload a photo of an electronic item instead.";
         setNotElectronicError(rejectionMsg);
         setStep("upload");
         return;
@@ -898,10 +898,10 @@ export default function AnalyzePage() {
               {/* Low Confidence Notice */}
               {isLowConfidence && (
                 <div className="rounded-sm border border-[#a3512b] bg-[#fff2ed] p-3 text-xs text-[#a3512b] flex items-start gap-2.5">
-                  <span className="font-bold flex-shrink-0 text-sm">⚠</span>
+                  <span className="font-mono font-bold flex-shrink-0 text-xs bg-[#a3512b] text-white px-1.5 py-0.5 rounded-[2px]">[!]</span>
                   <div className="space-y-0.5">
                     <strong className="font-semibold block text-[#151817]">
-                      AI confidence: low — please verify
+                      AI confidence: low. Please verify
                     </strong>
                     <p className="text-[11.5px] text-[#6b746e] leading-relaxed">
                       The vision model extracted a preliminary best guess ({formData.item_type || "unlisted electronic"}). Please confirm or select the closest matching category from the dropdown below.

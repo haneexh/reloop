@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, ChangeEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
 import { supabase } from "@/lib/supabase";
 import {
@@ -88,6 +89,7 @@ interface ManifestItem {
 }
 
 export default function CitizenRequestPage() {
+  const router = useRouter();
   // Stepper state: 1: Items, 2: Location, 3: Schedule & Contact, 4: Review, 5: Confirmed
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4 | 5>(1);
 
@@ -384,6 +386,52 @@ export default function CitizenRequestPage() {
   const totalWeight = Math.round(items.reduce((acc, i) => acc + i.weight_kg, 0) * 10) / 10;
   const totalCount = items.reduce((acc, i) => acc + i.quantity, 0);
 
+  // One-click demo pre-fill for judges
+  const handleFillDemoRequest = () => {
+    const demoItems: ManifestItem[] = [
+      {
+        id: "demo-item-1",
+        item_type: "Laptop Computer",
+        category_key: "laptop",
+        brand: "Apple MacBook Pro",
+        condition: "partially_working",
+        estimated_age_years: 4,
+        weight_kg: 2.2,
+        quantity: 1,
+        hazards: ["lithium_battery"],
+        co2e_saved_est: 110,
+        waste_avoided_kg: 2.2,
+      },
+      {
+        id: "demo-item-2",
+        item_type: "Smartphone",
+        category_key: "smartphone",
+        brand: "Samsung Galaxy S20",
+        condition: "cosmetic_damage",
+        estimated_age_years: 3,
+        weight_kg: 0.25,
+        quantity: 1,
+        hazards: ["lithium_battery"],
+        co2e_saved_est: 18.5,
+        waste_avoided_kg: 0.25,
+      },
+    ];
+
+    setItems(demoItems);
+    setCitizenName("Pooja Sharma");
+    setCitizenPhone("+91-98765-43210");
+    setAddress("Plot 18, Silicon Valley Layout, Madhapur, Hyderabad");
+    setSelectedZoneId("00000000-0000-0000-0000-000000000001");
+    setUserLat(17.4486);
+    setUserLng(78.3908);
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+    setPickupDate(tomorrow);
+    setPickupSlot("09:00 - 12:00");
+    setNotes("[Demo dataset] Verified household electronics cleanout");
+    setFormError(null);
+    setCurrentStep(4);
+  };
+
   // Stepper validation
   const handleProceedToLocation = () => {
     if (items.length === 0) {
@@ -487,11 +535,13 @@ export default function CitizenRequestPage() {
     }
   };
 
-  const handleCopyToken = () => {
+  const handleCopyToken = async () => {
     if (confirmedData?.qrToken) {
-      navigator.clipboard.writeText(confirmedData.qrToken);
+      await navigator.clipboard.writeText(confirmedData.qrToken);
       setCopiedToken(true);
-      setTimeout(() => setCopiedToken(false), 2000);
+      setTimeout(() => {
+        router.push(`/track/${confirmedData.qrToken}`);
+      }, 400);
     }
   };
 
@@ -572,16 +622,27 @@ export default function CitizenRequestPage() {
       {/* ========================================================= */}
       {currentStep === 1 && (
         <div className="space-y-6">
-          <div className="space-y-1">
-            <span className="text-[10px] font-mono uppercase tracking-wider text-[#2e7d57] font-bold block">
-              Step 1 of 4
-            </span>
-            <h2 className="text-xl font-display font-bold text-[#151817]">
-              What would you like us to collect?
-            </h2>
-            <p className="text-xs text-[#6b746e]">
-              Add one or more electronic items. You can snap an optional photo for assistance or pick from standard categories.
-            </p>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-1">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-[#2e7d57] font-bold block">
+                Step 1 of 4
+              </span>
+              <h2 className="text-xl font-display font-bold text-[#151817]">
+                What would you like us to collect?
+              </h2>
+              <p className="text-xs text-[#6b746e]">
+                Add one or more electronic items. You can snap an optional photo for assistance or pick from standard categories.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleFillDemoRequest}
+              className="border-[#2e7d57] bg-[#edf5f0] text-[#1e583c] hover:bg-[#e0eee5] shrink-0 font-semibold text-xs"
+            >
+              Fill demo request
+            </Button>
           </div>
 
           {/* Added items list */}
@@ -1319,13 +1380,13 @@ export default function CitizenRequestPage() {
               <div className="font-mono text-2xl font-bold text-[#151817] tracking-wider select-all">
                 {confirmedData.qrToken}
               </div>
-              <div className="flex items-center justify-center gap-2">
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
                 <button
                   type="button"
                   onClick={handleCopyToken}
-                  className="rounded-[3px] border border-[#d8ddd7] bg-white px-3 py-1.5 text-xs font-semibold text-[#151817] hover:bg-[#e9ede7] transition-colors"
+                  className="rounded-[3px] bg-[#2e7d57] px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-[#246644] transition-colors"
                 >
-                  {copiedToken ? "✓ Copied!" : "Copy Code"}
+                  {copiedToken ? "✓ Copied! Opening tracking..." : "Copy tracking code and open tracking"}
                 </button>
               </div>
             </div>

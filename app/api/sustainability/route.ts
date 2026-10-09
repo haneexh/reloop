@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin as supabase } from "@/lib/supabase";
 import { computeSustainabilityMetrics } from "@/lib/sustainability-engine";
 
 export async function GET() {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin as supabase } from "@/lib/supabase";
 import { FleetVehicle, getAvailableVehicles } from "@/lib/fleet-engine";
 import { SchedulableRequest, scheduleRequests } from "@/lib/scheduler";
 import { optimizeFleetRoutes, FleetOptimizationResult } from "@/lib/route-optimizer";

@@ -171,7 +171,7 @@ export default function DispatchRouteMap({
           marker.bindPopup(`
             <div style="font-family: sans-serif; font-size: 12px; line-height: 1.4;">
               <div style="font-weight: bold; font-family: monospace; color: ${color};">
-                STOP #${stop.sequence} — ${route.vehicle_code}
+                STOP #${stop.sequence} - ${route.vehicle_code}
               </div>
               <div style="margin-top: 4px;">
                 <b>Est. Load:</b> ${stop.estimated_weight_kg} kg<br/>

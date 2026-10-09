@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin as supabase } from "@/lib/supabase";
 import {
   isAuthorizedCollector,
   validateActualWeight,
@@ -260,12 +260,14 @@ export async function POST(req: NextRequest) {
     }
 
     // 13. Append immutable audit entries to event_log (Zero sensitive citizen PII)
+    const isSimulated = Boolean(body.is_simulated);
+    const eventActorRole = isSimulated ? "SIMULATED_COLLECTOR" : role;
     await supabase.from("event_log").insert([
       {
         event_type: "ITEM_COLLECTED",
         entity_type: "collection_requests",
         entity_id: request.id,
-        actor_role: role,
+        actor_role: eventActorRole,
         payload_json: {
           request_id: request.id,
           collection_record_id: createdRecord.id,
@@ -276,6 +278,7 @@ export async function POST(req: NextRequest) {
           estimated_weight_kg: estimatedWeightKg,
           variance_kg: variance.variance_kg,
           verification_method: validMethod,
+          is_simulated: isSimulated,
           gps_captured: typeof lat === "number" && typeof lng === "number",
           collected_at: nowIso,
         },
@@ -284,13 +287,14 @@ export async function POST(req: NextRequest) {
         event_type: "WEIGHT_RECORDED",
         entity_type: "collection_records",
         entity_id: createdRecord.id,
-        actor_role: role,
+        actor_role: eventActorRole,
         payload_json: {
           collection_record_id: createdRecord.id,
           request_id: request.id,
           actual_weight_kg: verifiedWeight,
           estimated_weight_kg: estimatedWeightKg,
           variance_percent: variance.variance_percent,
+          is_simulated: isSimulated,
         },
       },
     ]);

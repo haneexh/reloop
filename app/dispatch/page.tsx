@@ -198,7 +198,7 @@ export default function DispatchPage() {
             Pickups to Plan
           </span>
           <div className="text-2xl font-bold font-mono text-[#151817]">
-            {demandData?.planning_summary.pending_unassigned_requests ?? "—"}
+            {demandData?.planning_summary.pending_unassigned_requests ?? "-"}
           </div>
           <span className="text-[11px] text-[#6b746e] block">
             Awaiting vehicle assignment
@@ -210,7 +210,7 @@ export default function DispatchPage() {
             Scheduled Weight
           </span>
           <div className="text-2xl font-bold font-mono text-[#2e7d57]">
-            {demandData?.planning_summary.total_planning_weight_kg ?? "—"} <span className="text-sm font-normal">kg</span>
+            {demandData?.planning_summary.total_planning_weight_kg ?? "-"} <span className="text-sm font-normal">kg</span>
           </div>
           <span className="text-[11px] text-[#6b746e] block">
             Across active requests
@@ -516,7 +516,7 @@ export default function DispatchPage() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#d8ddd7] pb-3">
                   <div>
                     <h2 className="text-base font-bold text-[#151817]">
-                      Optimization Summary — {planningDate}
+                      Optimization Summary: {planningDate}
                     </h2>
                     <p className="text-xs text-[#6b746e]">
                       Comparing current intake order against capacity-aware route plan.

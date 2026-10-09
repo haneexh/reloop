@@ -179,12 +179,15 @@ async function runVerification() {
   let eventUpdateErrMsg = '';
   if (events && events.length > 0) {
     const targetEventId = events[0].id;
-    const { error: updErr } = await supabase
+    const { data: updData, error: updErr } = await supabase
       .from('event_log')
       .update({ actor_role: 'HACKED' })
-      .eq('id', targetEventId);
-    eventUpdateBlocked = Boolean(updErr);
-    eventUpdateErrMsg = updErr?.message || 'Update unexpectedly succeeded!';
+      .eq('id', targetEventId)
+      .select();
+    
+    // In PostgreSQL RLS without an update policy, update returns 0 affected rows (updData: []) or throws an error
+    eventUpdateBlocked = Boolean(updErr) || (!updErr && Array.isArray(updData) && updData.length === 0);
+    eventUpdateErrMsg = updErr?.message || (eventUpdateBlocked ? 'Blocked by RLS: 0 rows modified (append-only enforced)' : 'Update unexpectedly succeeded!');
   }
   results.event_log_append_only_protection = {
     update_blocked: eventUpdateBlocked,

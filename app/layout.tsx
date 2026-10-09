@@ -17,6 +17,7 @@ export const metadata: Metadata = {
 
 import { Navigation } from "@/components/Navigation";
 import { Footer } from "@/components/Footer";
+import { JudgeDemoBar } from "@/components/JudgeDemoBar";
 
 export default function RootLayout({
   children,
@@ -26,6 +27,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="min-h-screen bg-[#f4f5f1] text-[#151817] antialiased flex flex-col font-sans selection:bg-[#2e7d57] selection:text-white">
+        <JudgeDemoBar />
         <Navigation />
 
         <main className="flex-1 mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 sm:py-10">

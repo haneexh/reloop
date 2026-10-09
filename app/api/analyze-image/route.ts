@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 const SYSTEM_PROMPT = `You are a circular economy assessor for RE:LOOP.
 RE:LOOP STRICTLY AND EXCLUSIVELY assesses physical electronic devices, electrical equipment, and electronics hardware/components.
 
-STEP 1: FIRST, inspect the photograph and classify whether it shows a physical electronic device or electronic component (anything that contains circuitry, a battery, a power cord/plug, an electric motor, or an electronic display/screen — for example: phones, laptops, PCs, monitors, CRT TVs, appliances with electronic controls, audio equipment, gaming consoles, cables, chargers, power supplies, circuit boards, cameras, printers, electronic tools, etc.).
+STEP 1: FIRST, inspect the photograph and classify whether it shows a physical electronic device or electronic component (anything that contains circuitry, a battery, a power cord/plug, an electric motor, or an electronic display/screen - for example: phones, laptops, PCs, monitors, CRT TVs, appliances with electronic controls, audio equipment, gaming consoles, cables, chargers, power supplies, circuit boards, cameras, printers, electronic tools, etc.).
 
 If the photo does NOT depict an electronic item (for example: clothing, apparel, shoes, wooden/fabric furniture, plants, food, humans, pets/animals, books, tableware, sports gear, non-electronic toys, plastic containers, paper products, etc.):
 You MUST return ONLY this JSON:
@@ -145,6 +145,8 @@ async function callAnthropicVision(
     ? `${SYSTEM_PROMPT}\n\nIMPORTANT: Your previous output was not valid JSON. Return ONLY the raw JSON object, starting with { and ending with }.`
     : SYSTEM_PROMPT;
 
+  const model = process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022";
+
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -154,7 +156,7 @@ async function callAnthropicVision(
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-3-5-sonnet-20241022",
+        model,
         max_tokens: 1000,
         messages: [
           {
@@ -207,6 +209,7 @@ async function callOpenAIVision(
     : SYSTEM_PROMPT;
 
   const imageUrl = `data:${mediaType};base64,${base64Data}`;
+  const model = process.env.OPENAI_MODEL || "gpt-4o";
 
   try {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -216,7 +219,7 @@ async function callOpenAIVision(
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "gpt-4o",
+        model,
         max_tokens: 1000,
         response_format: { type: "json_object" },
         messages: [
@@ -270,11 +273,10 @@ async function callGeminiVision(
     : SYSTEM_PROMPT;
 
   // Supported multimodal models in active priority order
-  const models = [
-    "gemini-3.1-pro-preview",
-    "gemini-3-flash-preview",
-    "gemini-3.8-flash",
-  ];
+  const primaryGeminiModel = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+  const models = Array.from(
+    new Set([primaryGeminiModel, "gemini-2.0-flash", "gemini-1.5-pro"])
+  );
 
   let lastError = "";
 
@@ -418,7 +420,7 @@ export async function POST(req: NextRequest) {
             success: false,
             not_electronic: true,
             message:
-              "RE:LOOP currently only assesses electronic items. This photo doesn't appear to show an electronic device — please upload a photo of an electronic item instead.",
+              "RE:LOOP currently only assesses electronic items. This photo doesn't appear to show an electronic device - please upload a photo of an electronic item instead.",
             detected_object: parsed.rejection_reason || "Non-electronic item",
           });
         }
