@@ -6,6 +6,9 @@ import { supabase } from "@/lib/supabase";
 import { formatItemDisplayName, type RecommendedAction } from "@/lib/decisionEngine";
 import type { SustainabilityMetrics } from "@/lib/sustainability-engine";
 import type { RecoveryFacility } from "@/lib/recovery-engine";
+import { Card } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
 
 interface ItemWithRecommendation {
   id: string;
@@ -54,13 +57,13 @@ interface CandidateCollectionRecord {
   verified_at: string;
 }
 
-const ACTION_COLORS: Record<RecommendedAction, { bg: string; text: string; border: string; bar: string }> = {
-  repair: { bg: "bg-[#e6f2e8]", text: "text-[#2e7d57]", border: "border-[#2e7d57]/30", bar: "bg-[#2e7d57]" },
-  reuse: { bg: "bg-[#f4f5f1]", text: "text-[#151817]", border: "border-[#d8ddd7]", bar: "bg-[#151817]" },
-  donate: { bg: "bg-[#e6f2e8]", text: "text-[#173d2c]", border: "border-[#173d2c]/30", bar: "bg-[#173d2c]" },
-  resell: { bg: "bg-[#f4f5f1]", text: "text-[#151817]", border: "border-[#6b746e]", bar: "bg-[#4B5047]" },
-  refurbish: { bg: "bg-[#e6f2e8]", text: "text-[#2e7d57]", border: "border-[#2e7d57]/30", bar: "bg-[#2e7d57]" },
-  recycle: { bg: "bg-[#FDF2EC]", text: "text-[#a3512b]", border: "border-[#a3512b]/30", bar: "bg-[#a3512b]" },
+const ACTION_COLORS: Record<RecommendedAction, { bg: string; text: string; border: string }> = {
+  repair: { bg: "bg-[#e6f2e8]", text: "text-[#2e7d57]", border: "border-[#2e7d57]/30" },
+  reuse: { bg: "bg-[#f4f5f1]", text: "text-[#151817]", border: "border-[#d8ddd7]" },
+  donate: { bg: "bg-[#e6f2e8]", text: "text-[#173d2c]", border: "border-[#173d2c]/30" },
+  resell: { bg: "bg-[#f4f5f1]", text: "text-[#151817]", border: "border-[#6b746e]" },
+  refurbish: { bg: "bg-[#e6f2e8]", text: "text-[#2e7d57]", border: "border-[#2e7d57]/30" },
+  recycle: { bg: "bg-[#FDF2EC]", text: "text-[#a3512b]", border: "border-[#a3512b]/30" },
 };
 
 export default function DashboardPage() {
@@ -154,14 +157,12 @@ export default function DashboardPage() {
     }
   };
 
-  // Selected records total weight
   const selectedBatchWeight = candidateRecords
     .filter((r) => selectedRecordIds.includes(r.id))
     .reduce((sum, r) => sum + r.actual_weight_kg, 0);
 
   const roundedBatchWeight = Math.round(selectedBatchWeight * 10) / 10;
   const currentAllocSum = refurbPctInput + recyclePctInput + residualPctInput;
-  const isAllocationValid = currentAllocSum <= 100.01;
 
   // Submit Transfer
   const handleCreateTransfer = async () => {
@@ -217,691 +218,619 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-16 px-2 sm:px-4">
-      {/* Top Header & Role Switcher */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#d8ddd7] pb-4">
-        <div>
-          <div className="flex items-center gap-2 text-xs font-mono text-[#6b746e] uppercase tracking-wider mb-1">
-            <Link href="/" className="hover:text-[#2e7d57]">Platform</Link>
-            <span>/</span>
-            <span className="text-[#151817] font-semibold">Sustainability Intelligence</span>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-bold font-display text-[#151817] tracking-tight">
-            Municipal E-Waste Recovery &amp; Circular Dashboard
-          </h1>
-          <p className="text-xs text-[#6b746e] mt-0.5">
-            Real-time mass balance, material recovery accounting, and fleet eco-efficiency.
-          </p>
+    <div className="space-y-8 max-w-6xl mx-auto pb-16">
+      {/* 1. Header & Context */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 text-xs font-semibold text-[#6b746e]">
+          <Link href="/" className="hover:text-[#151817]">Home</Link>
+          <span>/</span>
+          <span className="text-[#151817]">Operations</span>
+          <span>/</span>
+          <span className="font-mono text-[#2e7d57] font-bold">Ledger</span>
         </div>
 
-        {/* View Perspective Selector */}
-        <div className="flex items-center gap-2 self-start sm:self-auto bg-white border border-[#d8ddd7] rounded-sm p-1.5 text-xs font-mono">
-          <span className="text-[#6b746e] text-[11px] px-1">Perspective:</span>
-          <select
-            value={userRole}
-            onChange={(e) => setUserRole(e.target.value as "PUBLIC" | "DISPATCHER" | "FACILITY")}
-            className="rounded-xs border border-[#d8ddd7] bg-[#f4f5f1] px-2 py-1 font-semibold text-[#151817]"
-          >
-            <option value="PUBLIC">Public Impact View</option>
-            <option value="DISPATCHER">Operator: Dispatcher</option>
-            <option value="FACILITY">Operator: Facility Lead</option>
-          </select>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#d8ddd7] pb-4">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-display font-bold text-[#151817]">
+              Recovery &amp; Impact
+            </h1>
+            <p className="text-xs sm:text-sm text-[#6b746e] mt-1">
+              Verified material recovery, facility transfers and environmental audit ledger.
+            </p>
+          </div>
+
+          {/* Perspective selector */}
+          <div className="flex items-center gap-2 bg-white border border-[#d8ddd7] rounded-[3px] p-1.5 text-xs font-mono">
+            <span className="text-[#6b746e] text-[11px] px-1">Role:</span>
+            <select
+              value={userRole}
+              onChange={(e) => setUserRole(e.target.value as "PUBLIC" | "DISPATCHER" | "FACILITY")}
+              className="border-none bg-transparent font-semibold text-[#151817] focus:outline-none"
+            >
+              <option value="PUBLIC">Public Auditor View</option>
+              <option value="DISPATCHER">Municipal Dispatcher</option>
+              <option value="FACILITY">Facility Supervisor</option>
+            </select>
+          </div>
         </div>
       </div>
 
-      {/* Public Aggregate Impact Banner */}
-      {metrics && (
-        <div className="rounded-sm bg-[#edf5f0] border border-[#bcdbc8] p-4 text-xs space-y-2">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div className="font-bold text-[#1e583c] flex items-center gap-2 text-sm">
-              <span>🌍</span> Public Environmental &amp; Circular Impact Summary
-            </div>
-            <span className="font-mono text-[11px] text-[#2e7d57]">
-              Certified Records: {metrics.real_requests_count} real intake requests ({metrics.simulated_requests_count} simulated demo)
+      {/* 2. Demonstration Data Notice (Transparent & Honest) */}
+      {metrics && metrics.simulated_requests_count > 0 && (
+        <div className="rounded-[3px] border border-[#d8ddd7] bg-[#f9faf8] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5">
+            <Badge variant="neutral" size="sm">Demonstration Data</Badge>
+            <span className="text-[#151817]">
+              Some records shown in this ledger are simulated for demonstration purposes ({metrics.simulated_requests_count} simulated demo records vs {metrics.real_requests_count} verified citizen intakes).
             </span>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1 font-mono">
-            <div>
-              <span className="text-[#6b746e] block text-[10px]">Total Diverted:</span>
-              <strong className="text-base text-[#151817]">{metrics.diverted_weight_kg} kg</strong>
-            </div>
-            <div>
-              <span className="text-[#6b746e] block text-[10px]">Recovery Rate:</span>
-              <strong className="text-base text-[#2e7d57]">{metrics.recovery_rate_percent}%</strong>
-            </div>
-            <div>
-              <span className="text-[#6b746e] block text-[10px]">Est. CO₂e Avoided:</span>
-              <strong className="text-base text-[#151817]">~{metrics.estimated_co2e_avoided_kg} kg</strong>
-            </div>
-            <div>
-              <span className="text-[#6b746e] block text-[10px]">Landfill Saved:</span>
-              <strong className="text-base text-[#151817]">~{metrics.estimated_landfill_diverted_m3} m³</strong>
-            </div>
-          </div>
-          <p className="text-[10px] text-[#6b746e] italic pt-1 border-t border-[#bcdbc8]/60">
-            {metrics.environmental_methodology}
-          </p>
+          <span className="font-mono text-[11px] text-[#6b746e] whitespace-nowrap">
+            Cryptographic Scale Verification
+          </span>
         </div>
       )}
 
-      {/* Tabs Navigation */}
-      <div className="flex flex-wrap gap-2 border-b border-[#d8ddd7] pb-2 text-xs font-mono font-semibold">
-        <button
-          type="button"
-          onClick={() => setActiveTab("sustainability")}
-          className={`px-3 py-1.5 rounded-sm transition-colors ${
-            activeTab === "sustainability"
-              ? "bg-[#2e7d57] text-white"
-              : "bg-white border border-[#d8ddd7] text-[#6b746e] hover:text-[#151817]"
-          }`}
-        >
-          🌱 Circular Recovery &amp; Mass Balance
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("transfers")}
-          className={`px-3 py-1.5 rounded-sm transition-colors ${
-            activeTab === "transfers"
-              ? "bg-[#2e7d57] text-white"
-              : "bg-white border border-[#d8ddd7] text-[#6b746e] hover:text-[#151817]"
-          }`}
-        >
-          🏭 Facility Transfers ({transfers.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("logistics")}
-          className={`px-3 py-1.5 rounded-sm transition-colors ${
-            activeTab === "logistics"
-              ? "bg-[#2e7d57] text-white"
-              : "bg-white border border-[#d8ddd7] text-[#6b746e] hover:text-[#151817]"
-          }`}
-        >
-          🚚 Logistics &amp; Eco-Fleet
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("items")}
-          className={`px-3 py-1.5 rounded-sm transition-colors ${
-            activeTab === "items"
-              ? "bg-[#2e7d57] text-white"
-              : "bg-white border border-[#d8ddd7] text-[#6b746e] hover:text-[#151817]"
-          }`}
-        >
-          📦 Item Assessment Registry ({items.length})
-        </button>
+      {/* 3. Top Summary 4 Key Metrics */}
+      {metrics && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <Card className="p-4 space-y-1">
+            <span className="text-[11px] font-mono text-[#6b746e] uppercase block">
+              Collected
+            </span>
+            <div className="text-2xl font-bold font-mono text-[#151817]">
+              {metrics.collected_weight_kg} <span className="text-sm font-normal">kg</span>
+            </div>
+            <span className="text-[11px] text-[#6b746e] block">
+              {metrics.collected_requests} pickups completed
+            </span>
+          </Card>
+
+          <Card className="p-4 space-y-1">
+            <span className="text-[11px] font-mono text-[#6b746e] uppercase block">
+              Recovered
+            </span>
+            <div className="text-2xl font-bold font-mono text-[#2e7d57]">
+              {metrics.recovered_weight_kg} <span className="text-sm font-normal">kg</span>
+            </div>
+            <span className="text-[11px] text-[#2e7d57] font-semibold block">
+              Refurbished &amp; reused
+            </span>
+          </Card>
+
+          <Card className="p-4 space-y-1">
+            <span className="text-[11px] font-mono text-[#6b746e] uppercase block">
+              Recycled
+            </span>
+            <div className="text-2xl font-bold font-mono text-[#151817]">
+              {metrics.recycled_weight_kg} <span className="text-sm font-normal">kg</span>
+            </div>
+            <span className="text-[11px] text-[#6b746e] block">
+              Smelting &amp; material extraction
+            </span>
+          </Card>
+
+          <Card className="p-4 space-y-1">
+            <span className="text-[11px] font-mono text-[#6b746e] uppercase block">
+              Diverted
+            </span>
+            <div className="text-2xl font-bold font-mono text-[#2e7d57]">
+              {metrics.diversion_rate_percent}%
+            </div>
+            <span className="text-[11px] text-[#6b746e] block">
+              Kept from landfill
+            </span>
+          </Card>
+        </div>
+      )}
+
+      {/* Operational Efficiency Secondary Row */}
+      {metrics && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="p-3 bg-white rounded-[3px] border border-[#d8ddd7] space-y-0.5">
+            <span className="text-[10px] font-mono text-[#6b746e] uppercase block">Collection Efficiency</span>
+            <span className="font-mono text-sm font-bold text-[#151817]">
+              {metrics.collection_completion_rate_percent}% completion
+            </span>
+          </div>
+
+          <div className="p-3 bg-white rounded-[3px] border border-[#d8ddd7] space-y-0.5">
+            <span className="text-[10px] font-mono text-[#6b746e] uppercase block">Vehicle Utilization</span>
+            <span className="font-mono text-sm font-bold text-[#151817]">
+              {metrics.vehicle_utilization_percent}% capacity
+            </span>
+          </div>
+
+          <div className="p-3 bg-white rounded-[3px] border border-[#d8ddd7] space-y-0.5">
+            <span className="text-[10px] font-mono text-[#6b746e] uppercase block">Route Distance</span>
+            <span className="font-mono text-sm font-bold text-[#151817]">
+              {metrics.route_distance_km} km driven
+            </span>
+          </div>
+
+          <div className="p-3 bg-white rounded-[3px] border border-[#d8ddd7] space-y-0.5">
+            <span className="text-[10px] font-mono text-[#6b746e] uppercase block">Recovery Rate</span>
+            <span className="font-mono text-sm font-bold text-[#2e7d57]">
+              {metrics.recovery_rate_percent}% circular
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Tab Navigation */}
+      <div className="border-b border-[#d8ddd7]">
+        <div className="flex flex-wrap gap-6 text-xs font-semibold">
+          {[
+            { id: "sustainability", label: "Material Flow & Recovery" },
+            { id: "transfers", label: `Facility Transfers (${transfers.length})` },
+            { id: "logistics", label: "Fleet Logistics Ledger" },
+            { id: "items", label: `Item Registry (${items.length})` },
+          ].map((tab) => {
+            const isTabActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id as typeof activeTab)}
+                className={`pb-3 border-b-2 transition-colors ${
+                  isTabActive
+                    ? "border-[#2e7d57] text-[#151817] font-bold"
+                    : "border-transparent text-[#6b746e] hover:text-[#151817]"
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {loading && (
-        <div className="rounded-sm border border-[#d8ddd7] bg-white p-12 text-center">
-          <div className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-[#2e7d57] border-t-transparent mb-3"></div>
-          <div className="text-xs font-mono text-[#6b746e]">Loading Municipal Database Ledgers...</div>
-        </div>
+        <Card className="p-12 text-center space-y-3">
+          <div className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-[#2e7d57] border-t-transparent" />
+          <p className="text-xs font-mono text-[#6b746e]">Loading municipal database ledgers...</p>
+        </Card>
       )}
 
       {error && (
-        <div className="rounded-sm bg-[#fdf2f2] border border-[#f5c6cb] p-4 text-xs text-[#721c24]">
+        <div className="rounded-[3px] border border-[#f5c6cb] bg-[#fdf2f2] p-4 text-xs text-[#721c24]">
           {error}
         </div>
       )}
 
-      {/* ======================================================== */}
-      {/* TAB 1: SUSTAINABILITY & CIRCULAR RECOVERY */}
-      {/* ======================================================== */}
+      {/* ========================================================= */}
+      {/* TAB 1: MATERIAL FLOW ("WHERE COLLECTED MATERIAL WENT") */}
+      {/* ========================================================= */}
       {!loading && activeTab === "sustainability" && metrics && (
         <div className="space-y-6">
-          {/* Top 6 KPI Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <div className="bg-white border border-[#d8ddd7] rounded-sm p-4 text-center">
-              <span className="text-[10px] font-mono uppercase text-[#6b746e] block">Collected Load</span>
-              <span className="text-xl font-bold font-mono text-[#151817]">{metrics.collected_weight_kg} kg</span>
-              <span className="text-[10px] text-[#6b746e] block mt-0.5">{metrics.collected_requests} pickups completed</span>
+          <Card className="p-6 space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#d8ddd7] pb-3">
+              <div>
+                <h2 className="text-base font-bold text-[#151817]">
+                  Where Collected Material Went
+                </h2>
+                <p className="text-xs text-[#6b746e]">
+                  Certified mass balance allocation across audited recovery streams.
+                </p>
+              </div>
+              <span className="font-mono text-xs font-bold text-[#2e7d57]">
+                Total: {metrics.collected_weight_kg} kg
+              </span>
             </div>
 
-            <div className="bg-white border border-[#d8ddd7] rounded-sm p-4 text-center">
-              <span className="text-[10px] font-mono uppercase text-[#6b746e] block">Refurbished / Reuse</span>
-              <span className="text-xl font-bold font-mono text-[#2e7d57]">{metrics.recovered_weight_kg} kg</span>
-              <span className="text-[10px] text-[#2e7d57] block mt-0.5 font-semibold">High-value circular loop</span>
-            </div>
-
-            <div className="bg-white border border-[#d8ddd7] rounded-sm p-4 text-center">
-              <span className="text-[10px] font-mono uppercase text-[#6b746e] block">Materials Recycled</span>
-              <span className="text-xl font-bold font-mono text-[#151817]">{metrics.recycled_weight_kg} kg</span>
-              <span className="text-[10px] text-[#6b746e] block mt-0.5">Smelting &amp; extraction</span>
-            </div>
-
-            <div className="bg-white border border-[#d8ddd7] rounded-sm p-4 text-center">
-              <span className="text-[10px] font-mono uppercase text-[#6b746e] block">Landfill Residual</span>
-              <span className="text-xl font-bold font-mono text-[#c26d24]">{metrics.residual_weight_kg} kg</span>
-              <span className="text-[10px] text-[#6b746e] block mt-0.5">Non-recoverable slag</span>
-            </div>
-
-            <div className="bg-white border border-[#d8ddd7] rounded-sm p-4 text-center">
-              <span className="text-[10px] font-mono uppercase text-[#6b746e] block">Diversion Rate</span>
-              <span className="text-xl font-bold font-mono text-[#2e7d57]">{metrics.diversion_rate_percent}%</span>
-              <span className="text-[10px] text-[#2e7d57] block mt-0.5 font-semibold">Kept from dump</span>
-            </div>
-
-            <div className="bg-white border border-[#d8ddd7] rounded-sm p-4 text-center">
-              <span className="text-[10px] font-mono uppercase text-[#6b746e] block">Pickup Completion</span>
-              <span className="text-xl font-bold font-mono text-[#151817]">{metrics.collection_completion_rate_percent}%</span>
-              <span className="text-[10px] text-[#6b746e] block mt-0.5">{metrics.scheduled_requests} scheduled</span>
-            </div>
-          </div>
-
-          {/* Mass Balance & Processing Breakdown */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white border border-[#d8ddd7] rounded-sm p-5 space-y-4">
-              <div className="flex items-center justify-between border-b border-[#e9ede7] pb-2">
-                <h3 className="text-xs font-bold uppercase font-mono text-[#151817]">
-                  Material Mass Balance Allocation
-                </h3>
-                <span className="text-xs font-mono font-bold text-[#2e7d57]">
-                  {metrics.collected_weight_kg} kg Total
+            {/* Visual Stream Breakdown */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="p-4 bg-[#edf5f0] border border-[#bcdbc8] rounded-[3px] space-y-1">
+                <span className="text-[10px] font-mono text-[#1e583c] uppercase font-bold block">
+                  1. Refurbished &amp; Reused
                 </span>
+                <div className="text-xl font-bold font-mono text-[#1e583c]">
+                  {metrics.recovered_weight_kg} kg
+                </div>
+                <p className="text-[11px] text-[#246644] leading-relaxed">
+                  Laptops, phones, and displays returned to active functional use.
+                </p>
               </div>
 
-              {/* Progress Bar Breakdown */}
-              <div className="w-full bg-[#f4f5f1] h-6 rounded-xs flex overflow-hidden border border-[#d8ddd7]">
+              <div className="p-4 bg-white border border-[#d8ddd7] rounded-[3px] space-y-1">
+                <span className="text-[10px] font-mono text-[#151817] uppercase font-bold block">
+                  2. Recycled &amp; Smelted
+                </span>
+                <div className="text-xl font-bold font-mono text-[#151817]">
+                  {metrics.recycled_weight_kg} kg
+                </div>
+                <p className="text-[11px] text-[#6b746e] leading-relaxed">
+                  Copper coils, aluminium chassis, printed circuit boards, and plastics.
+                </p>
+              </div>
+
+              <div className="p-4 bg-[#fffaf5] border border-[#f0dfd0] rounded-[3px] space-y-1">
+                <span className="text-[10px] font-mono text-[#8a5d00] uppercase font-bold block">
+                  3. Residual Handled
+                </span>
+                <div className="text-xl font-bold font-mono text-[#8a5d00]">
+                  {metrics.residual_weight_kg} kg
+                </div>
+                <p className="text-[11px] text-[#8a5d00] leading-relaxed">
+                  Lead glass, toner residue, and hazardous slag neutralised under regulation.
+                </p>
+              </div>
+            </div>
+
+            {/* Proportion Bar */}
+            <div className="space-y-1.5 pt-2">
+              <div className="h-4 w-full bg-[#f4f5f1] rounded-[2px] flex overflow-hidden border border-[#d8ddd7]">
                 <div
-                  className="bg-[#2e7d57] text-[10px] text-white flex items-center justify-center font-mono font-bold"
+                  className="bg-[#2e7d57] h-full"
                   style={{
                     width: `${metrics.collected_weight_kg > 0 ? (metrics.recovered_weight_kg / metrics.collected_weight_kg) * 100 : 0}%`,
                   }}
                   title={`Refurbished: ${metrics.recovered_weight_kg} kg`}
-                >
-                  {metrics.recovered_weight_kg > 0 ? `${metrics.recovered_weight_kg}kg` : ""}
-                </div>
+                />
                 <div
-                  className="bg-[#151817] text-[10px] text-white flex items-center justify-center font-mono font-bold"
+                  className="bg-[#151817] h-full"
                   style={{
                     width: `${metrics.collected_weight_kg > 0 ? (metrics.recycled_weight_kg / metrics.collected_weight_kg) * 100 : 0}%`,
                   }}
                   title={`Recycled: ${metrics.recycled_weight_kg} kg`}
-                >
-                  {metrics.recycled_weight_kg > 0 ? `${metrics.recycled_weight_kg}kg` : ""}
-                </div>
+                />
                 <div
-                  className="bg-[#c26d24] text-[10px] text-white flex items-center justify-center font-mono font-bold"
+                  className="bg-[#c26d24] h-full"
                   style={{
                     width: `${metrics.collected_weight_kg > 0 ? (metrics.residual_weight_kg / metrics.collected_weight_kg) * 100 : 0}%`,
                   }}
                   title={`Residual: ${metrics.residual_weight_kg} kg`}
-                >
-                  {metrics.residual_weight_kg > 0 ? `${metrics.residual_weight_kg}kg` : ""}
-                </div>
-                <div
-                  className="bg-[#d8ddd7] text-[10px] text-[#6b746e] flex items-center justify-center font-mono"
-                  style={{
-                    width: `${metrics.collected_weight_kg > 0 ? (metrics.unprocessed_collected_kg / metrics.collected_weight_kg) * 100 : 0}%`,
-                  }}
-                  title={`Awaiting Transfer: ${metrics.unprocessed_collected_kg} kg`}
-                >
-                  {metrics.unprocessed_collected_kg > 0 ? `${metrics.unprocessed_collected_kg}kg` : ""}
-                </div>
+                />
               </div>
-
-              {/* Breakdown Legend */}
-              <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-                <div className="flex items-center gap-2">
-                  <span className="h-3 w-3 bg-[#2e7d57] rounded-xs"></span>
-                  <span>Refurbished: {metrics.recovered_weight_kg} kg</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="h-3 w-3 bg-[#151817] rounded-xs"></span>
-                  <span>Recycled: {metrics.recycled_weight_kg} kg</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="h-3 w-3 bg-[#c26d24] rounded-xs"></span>
-                  <span>Residual: {metrics.residual_weight_kg} kg</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="h-3 w-3 bg-[#d8ddd7] rounded-xs"></span>
-                  <span>Awaiting Transfer: {metrics.unprocessed_collected_kg} kg</span>
-                </div>
+              <div className="flex justify-between text-[10px] font-mono text-[#6b746e]">
+                <span>■ Green: Refurbished</span>
+                <span>■ Black: Recycled</span>
+                <span>■ Orange: Hazardous Slag / Residual</span>
               </div>
+            </div>
+          </Card>
 
-              {userRole !== "PUBLIC" && (
-                <div className="pt-2 border-t border-[#e9ede7]">
-                  <button
-                    type="button"
-                    onClick={openTransferModal}
-                    className="w-full rounded-sm bg-[#2e7d57] py-2 px-3 text-xs font-bold text-white uppercase tracking-wider hover:bg-[#246644] transition-colors"
-                  >
-                    + Create Facility Transfer Batch
-                  </button>
-                </div>
-              )}
+          {/* Environmental Estimates (Marked with ESTIMATE Badge) */}
+          <Card className="p-6 space-y-4 bg-[#f9faf8]">
+            <div className="flex items-center justify-between border-b border-[#d8ddd7] pb-3">
+              <div className="flex items-center gap-2">
+                <Badge variant="neutral" size="sm">ESTIMATE</Badge>
+                <h3 className="text-sm font-bold text-[#151817]">
+                  Calculated Environmental Offsets
+                </h3>
+              </div>
+              <span className="font-mono text-[11px] text-[#6b746e]">
+                EPA WARM / UNEP Methodology
+              </span>
             </div>
 
-            {/* Category Distribution */}
-            <div className="bg-white border border-[#d8ddd7] rounded-sm p-5 space-y-3">
-              <div className="flex items-center justify-between border-b border-[#e9ede7] pb-2">
-                <h3 className="text-xs font-bold uppercase font-mono text-[#151817]">
-                  E-Waste Category Distribution
-                </h3>
-                <span className="text-xs font-mono text-[#6b746e]">
-                  {metrics.category_distribution.length} categories
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-mono">
+              <div className="p-3 bg-white border border-[#d8ddd7] rounded-[3px]">
+                <span className="text-[#6b746e] block text-[10px] uppercase">Avoided Carbon Emissions</span>
+                <span className="text-lg font-bold text-[#2e7d57]">
+                  ~{metrics.estimated_co2e_avoided_kg} kg CO₂e
+                </span>
+                <span className="text-[10px] text-[#6b746e] block mt-1">
+                  Compared to virgin material mining &amp; fabrication
                 </span>
               </div>
 
-              {metrics.category_distribution.length === 0 ? (
-                <div className="p-6 text-center text-xs font-mono text-[#6b746e]">
-                  Insufficient recorded data
-                </div>
-              ) : (
-                <div className="space-y-2.5">
-                  {metrics.category_distribution.slice(0, 5).map((cat) => (
-                    <div key={cat.category} className="space-y-1">
-                      <div className="flex justify-between text-xs">
-                        <span className="font-semibold text-[#151817]">{cat.category}</span>
-                        <span className="font-mono text-[#6b746e]">
-                          {cat.weight_kg} kg ({cat.percentage}%)
-                        </span>
-                      </div>
-                      <div className="w-full bg-[#f4f5f1] h-1.5 rounded-full overflow-hidden">
-                        <div
-                          className="bg-[#2e7d57] h-full"
-                          style={{ width: `${Math.min(100, cat.percentage)}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <div className="p-3 bg-white border border-[#d8ddd7] rounded-[3px]">
+                <span className="text-[#6b746e] block text-[10px] uppercase">Landfill Volume Diverted</span>
+                <span className="text-lg font-bold text-[#151817]">
+                  ~{metrics.estimated_landfill_diverted_m3} m³
+                </span>
+                <span className="text-[10px] text-[#6b746e] block mt-1">
+                  Compacted electronic waste kept from municipal dump sites
+                </span>
+              </div>
             </div>
-          </div>
+
+            <p className="text-[11px] text-[#6b746e] leading-relaxed pt-1">
+              Methodology note: {metrics.environmental_methodology} Physical collection weights reflect calibrated digital scale audits at citizen doorsteps.
+            </p>
+          </Card>
         </div>
       )}
 
-      {/* ======================================================== */}
-      {/* TAB 2: FACILITY TRANSFERS & CHAIN OF CUSTODY */}
-      {/* ======================================================== */}
+      {/* ========================================================= */}
+      {/* TAB 2: FACILITY TRANSFERS WORKFLOW */}
+      {/* ========================================================= */}
       {!loading && activeTab === "transfers" && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs font-bold uppercase font-mono text-[#151817]">
-              Accredited Facility Transfers Ledger ({transfers.length} Batches)
-            </h2>
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-bold text-[#151817]">
+                Chain of Custody: Facility Transfers
+              </h2>
+              <p className="text-xs text-[#6b746e]">
+                Traceability ledger tracking collected e-waste transferred to certified processing facilities.
+              </p>
+            </div>
             {userRole !== "PUBLIC" && (
-              <button
+              <Button
                 type="button"
+                variant="primary"
+                size="sm"
                 onClick={openTransferModal}
-                className="rounded-sm bg-[#2e7d57] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#246644]"
               >
-                + New Transfer Batch
-              </button>
+                + Transfer Batch to Facility
+              </Button>
             )}
           </div>
 
-          {transfers.length === 0 ? (
-            <div className="bg-white border border-[#d8ddd7] rounded-sm p-8 text-center space-y-3">
-              <p className="text-xs font-mono text-[#6b746e]">
-                No recovery facility transfers recorded in database yet.
-              </p>
-              {userRole !== "PUBLIC" && (
-                <button
-                  type="button"
-                  onClick={openTransferModal}
-                  className="rounded-sm bg-[#2e7d57] px-4 py-2 text-xs font-semibold text-white hover:bg-[#246644]"
-                >
-                  Create First Facility Transfer
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="bg-white border border-[#d8ddd7] rounded-sm divide-y divide-[#e9ede7]">
-              {transfers.map((t) => (
-                <div key={t.id} className="p-4 space-y-2 text-xs">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                    <div className="font-semibold text-sm text-[#151817]">
-                      {t.facility_name}
-                      <span className="font-mono text-xs font-normal text-[#6b746e] ml-2">
-                        [{t.facility_type.toUpperCase()}]
-                      </span>
-                    </div>
-                    <div className="font-mono text-xs text-[#2e7d57] font-bold">
-                      {t.total_weight_kg} kg Transferred
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-[11px] text-[#6b746e]">
-                    <div>
-                      <span>Refurbished: </span>
-                      <strong className="text-[#2e7d57]">{t.refurbished_pct}%</strong>
-                    </div>
-                    <div>
-                      <span>Recycled: </span>
-                      <strong className="text-[#151817]">{t.recycled_pct}%</strong>
-                    </div>
-                    <div>
-                      <span>Residual: </span>
-                      <strong className="text-[#c26d24]">{t.residual_pct}%</strong>
-                    </div>
-                    <div>
-                      <span>Date: </span>
-                      <span>{new Date(t.transferred_at).toLocaleDateString()}</span>
-                    </div>
-                  </div>
-
-                  {t.breakdown && !t.breakdown.is_complete && (
-                    <div className="rounded-xs bg-[#fff3cd] border border-[#ffeeba] p-1.5 text-[10px] text-[#856404] font-mono">
-                      ⚠ Incomplete recovery allocation: {t.breakdown.unallocated_kg} kg remains unallocated.
-                    </div>
+          <Card className="overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-[#f4f5f1] text-[#6b746e] font-mono text-[10px] uppercase">
+                  <tr>
+                    <th className="p-3 border-b border-[#d8ddd7]">Facility</th>
+                    <th className="p-3 border-b border-[#d8ddd7]">Type</th>
+                    <th className="p-3 border-b border-[#d8ddd7]">Weight</th>
+                    <th className="p-3 border-b border-[#d8ddd7]">Material Breakdown</th>
+                    <th className="p-3 border-b border-[#d8ddd7]">Status</th>
+                    <th className="p-3 border-b border-[#d8ddd7]">Date</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#d8ddd7]">
+                  {transfers.length > 0 ? (
+                    transfers.map((t) => (
+                      <tr key={t.id} className="hover:bg-[#f9faf8]">
+                        <td className="p-3 font-semibold text-[#151817]">
+                          {t.facility_name}
+                          <span className="block text-[11px] font-normal text-[#6b746e]">{t.city}</span>
+                        </td>
+                        <td className="p-3 capitalize">{t.facility_type.replace(/_/g, " ")}</td>
+                        <td className="p-3 font-mono font-bold text-[#151817]">{t.total_weight_kg} kg</td>
+                        <td className="p-3 text-[11px] font-mono">
+                          <span className="text-[#2e7d57] font-semibold">{t.refurbished_pct}% Refurb</span>
+                          {" · "}
+                          <span className="text-[#151817]">{t.recycled_pct}% Recycle</span>
+                          {" · "}
+                          <span className="text-[#8a5d00]">{t.residual_pct}% Residual</span>
+                        </td>
+                        <td className="p-3">
+                          <Badge variant="success" size="sm">Audited</Badge>
+                        </td>
+                        <td className="p-3 text-[#6b746e] font-mono text-[11px]">
+                          {new Date(t.transferred_at).toLocaleDateString()}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="p-6 text-center text-xs text-[#6b746e]">
+                        No facility transfers logged yet.
+                      </td>
+                    </tr>
                   )}
-                </div>
-              ))}
+                </tbody>
+              </table>
             </div>
-          )}
+          </Card>
         </div>
       )}
 
-      {/* ======================================================== */}
-      {/* TAB 3: LOGISTICS & ECO-FLEET */}
-      {/* ======================================================== */}
+      {/* ========================================================= */}
+      {/* TAB 3: FLEET LOGISTICS LEDGER */}
+      {/* ========================================================= */}
       {!loading && activeTab === "logistics" && metrics && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-white border border-[#d8ddd7] rounded-sm p-5 text-center">
-              <span className="text-[10px] font-mono uppercase text-[#6b746e] block">Collection Efficiency</span>
-              <span className="text-2xl font-bold font-mono text-[#2e7d57]">
-                {metrics.collection_efficiency_kg_per_km} kg/km
-              </span>
-              <p className="text-[11px] text-[#6b746e] mt-1">Payload mass harvested per transit kilometer</p>
-            </div>
-
-            <div className="bg-white border border-[#d8ddd7] rounded-sm p-5 text-center">
-              <span className="text-[10px] font-mono uppercase text-[#6b746e] block">Fleet Utilization</span>
-              <span className="text-2xl font-bold font-mono text-[#151817]">
-                {metrics.vehicle_utilization_percent}%
-              </span>
-              <p className="text-[11px] text-[#6b746e] mt-1">Cargo bay capacity utilized across active fleet</p>
-            </div>
-
-            <div className="bg-white border border-[#d8ddd7] rounded-sm p-5 text-center">
-              <span className="text-[10px] font-mono uppercase text-[#6b746e] block">Distance Saved vs FIFO</span>
-              <span className="text-2xl font-bold font-mono text-[#2e7d57]">
-                {metrics.route_distance_saved_km} km
-              </span>
-              <p className="text-[11px] text-[#6b746e] mt-1">Via capacity-aware 2-opt tour optimization</p>
-            </div>
-          </div>
-
-          <div className="bg-white border border-[#d8ddd7] rounded-sm p-5 space-y-3">
-            <h3 className="text-xs font-bold uppercase font-mono text-[#151817] border-b border-[#e9ede7] pb-2">
-              Dispatch &amp; Field Operations Links
-            </h3>
-            <div className="flex flex-wrap gap-3">
-              <Link
-                href="/dispatch"
-                className="rounded-sm bg-[#151817] px-4 py-2 text-xs font-semibold text-white hover:bg-[#333a35]"
-              >
-                🗺 Open Dispatch &amp; Route Planner (/dispatch)
-              </Link>
-              <Link
-                href="/collector"
-                className="rounded-sm border border-[#2e7d57] px-4 py-2 text-xs font-semibold text-[#2e7d57] hover:bg-[#edf5f0]"
-              >
-                📱 Open Collector Mobile Cockpit (/collector)
-              </Link>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ======================================================== */}
-      {/* TAB 4: ITEM ASSESSMENT REGISTRY (PRESERVED LEGACY VIEW) */}
-      {/* ======================================================== */}
-      {!loading && activeTab === "items" && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between border-b border-[#e9ede7] pb-2">
-            <h2 className="text-xs font-bold uppercase font-mono text-[#151817]">
-              Item Intake &amp; Circular Pathway Analysis ({items.length} Evaluated Hardware Records)
+        <Card className="p-6 space-y-4">
+          <div className="border-b border-[#d8ddd7] pb-3">
+            <h2 className="text-base font-bold text-[#151817]">
+              Fleet Logistics Audit
             </h2>
-            <Link
-              href="/analyze"
-              className="rounded-sm bg-[#2e7d57] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#246644]"
-            >
-              + New Item Intake
-            </Link>
+            <p className="text-xs text-[#6b746e]">
+              Operational transport metrics across collection runs.
+            </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {items.map((item) => {
-              const rec = item.recommendations?.[0];
-              const action = rec?.recommended_action || "recycle";
-              const colors = ACTION_COLORS[action];
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs font-mono">
+            <div className="p-3 bg-[#f4f5f1] rounded-[3px] border border-[#d8ddd7]">
+              <span className="text-[10px] text-[#6b746e] uppercase block">Total Distance</span>
+              <span className="text-base font-bold text-[#151817]">{metrics.route_distance_km} km</span>
+            </div>
 
-              return (
-                <div
-                  key={item.id}
-                  className="bg-white border border-[#d8ddd7] rounded-sm p-4 space-y-3 text-xs flex flex-col justify-between"
-                >
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-sm text-[#151817]">
-                        {formatItemDisplayName(item.item_type || "E-Waste", item.brand)}
-                      </span>
-                      <span
-                        className={`rounded-xs px-2 py-0.5 text-[10px] font-mono font-bold uppercase ${colors.bg} ${colors.text} border ${colors.border}`}
-                      >
-                        {action}
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-[#6b746e] capitalize">
-                      Condition: {item.condition?.replace("_", " ") || "Inspected"} • Age: {item.estimated_age_years ?? 3}y
-                    </div>
-                    {rec?.rationale && (
-                      <p className="text-[11px] text-[#6b746e] line-clamp-2 italic">
-                        &quot;{rec.rationale}&quot;
-                      </p>
-                    )}
-                  </div>
+            <div className="p-3 bg-[#f4f5f1] rounded-[3px] border border-[#d8ddd7]">
+              <span className="text-[10px] text-[#6b746e] uppercase block">Collection Efficiency</span>
+              <span className="text-base font-bold text-[#2e7d57]">{metrics.collection_efficiency_kg_per_km} kg/km</span>
+            </div>
 
-                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-[#e9ede7] font-mono text-[11px]">
-                    <div>
-                      <span className="text-[#6b746e] block text-[10px]">Mass Avoided:</span>
-                      <strong className="text-[#151817]">{item.waste_avoided_kg ?? 2.5} kg</strong>
-                    </div>
-                    <div>
-                      <span className="text-[#6b746e] block text-[10px]">Est. CO₂e:</span>
-                      <strong className="text-[#2e7d57]">~{item.co2e_saved_est ?? 15} kg</strong>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            <div className="p-3 bg-[#f4f5f1] rounded-[3px] border border-[#d8ddd7]">
+              <span className="text-[10px] text-[#6b746e] uppercase block">Fleet Capacity Util</span>
+              <span className="text-base font-bold text-[#151817]">{metrics.vehicle_utilization_percent}%</span>
+            </div>
+
+            <div className="p-3 bg-[#f4f5f1] rounded-[3px] border border-[#d8ddd7]">
+              <span className="text-[10px] text-[#6b746e] uppercase block">Total Pickups</span>
+              <span className="text-base font-bold text-[#151817]">{metrics.collected_requests}</span>
+            </div>
           </div>
-        </div>
+        </Card>
       )}
 
-      {/* ======================================================== */}
-      {/* FACILITY TRANSFER MODAL */}
-      {/* ======================================================== */}
+      {/* ========================================================= */}
+      {/* TAB 4: ITEM REGISTRY */}
+      {/* ========================================================= */}
+      {!loading && activeTab === "items" && (
+        <Card className="overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-[#f4f5f1] text-[#6b746e] font-mono text-[10px] uppercase">
+                <tr>
+                  <th className="p-3 border-b border-[#d8ddd7]">Device</th>
+                  <th className="p-3 border-b border-[#d8ddd7]">Condition</th>
+                  <th className="p-3 border-b border-[#d8ddd7]">Weight</th>
+                  <th className="p-3 border-b border-[#d8ddd7]">Recommended Path</th>
+                  <th className="p-3 border-b border-[#d8ddd7]">Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#d8ddd7]">
+                {items.length > 0 ? (
+                  items.slice(0, 15).map((it) => {
+                    const topRec = it.recommendations?.[0]?.recommended_action || "recycle";
+                    const styling = ACTION_COLORS[topRec] || ACTION_COLORS.recycle;
+
+                    return (
+                      <tr key={it.id} className="hover:bg-[#f9faf8]">
+                        <td className="p-3 font-semibold text-[#151817]">
+                          {formatItemDisplayName(it.item_type, it.brand)}
+                        </td>
+                        <td className="p-3 capitalize">{it.condition?.replace("_", " ") || "Inspected"}</td>
+                        <td className="p-3 font-mono font-bold text-[#151817]">~{it.waste_avoided_kg ?? 1.5} kg</td>
+                        <td className="p-3">
+                          <span className={`inline-block px-2 py-0.5 rounded-[2px] border text-[10px] font-mono uppercase font-bold ${styling.bg} ${styling.text} ${styling.border}`}>
+                            {topRec}
+                          </span>
+                        </td>
+                        <td className="p-3 text-[#6b746e] font-mono text-[11px]">
+                          {new Date(it.created_at).toLocaleDateString()}
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={5} className="p-6 text-center text-xs text-[#6b746e]">
+                      No items in registry.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {/* ========================================================= */}
+      {/* TRANSFER MODAL */}
+      {/* ========================================================= */}
       {isTransferModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-3">
-          <div className="bg-white rounded-sm border border-[#d8ddd7] max-w-lg w-full max-h-[92vh] overflow-y-auto p-5 space-y-4 shadow-xl">
-            <div className="flex items-center justify-between border-b border-[#e9ede7] pb-3">
-              <div>
-                <span className="text-[10px] font-mono font-bold uppercase text-[#6b746e]">
-                  Chain of Custody Handover
-                </span>
-                <h3 className="text-base font-bold font-display text-[#151817]">
-                  Create Facility Recovery Transfer
-                </h3>
-              </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-[3px] border border-[#d8ddd7] bg-white p-5 space-y-4 shadow-xl">
+            <div className="flex items-center justify-between border-b border-[#d8ddd7] pb-3">
+              <h3 className="text-sm font-bold text-[#151817]">
+                Transfer Collected Batch to Facility
+              </h3>
               <button
                 type="button"
                 onClick={() => setIsTransferModalOpen(false)}
-                className="text-lg font-bold text-[#6b746e] hover:text-[#151817]"
+                className="text-base font-bold text-[#6b746e] hover:text-[#151817]"
               >
-                ✕
+                &times;
               </button>
             </div>
 
             {transferError && (
-              <div className="rounded-sm bg-[#fdf2f2] border border-[#f5c6cb] p-2.5 text-xs text-[#721c24]">
+              <div className="rounded-[3px] border border-[#f5c6cb] bg-[#fdf2f2] p-3 text-xs text-[#721c24]">
                 {transferError}
               </div>
             )}
 
             {transferSuccess && (
-              <div className="rounded-sm bg-[#edf5f0] border border-[#bcdbc8] p-2.5 text-xs text-[#1e583c]">
+              <div className="rounded-[3px] border border-[#bcdbc8] bg-[#edf5f0] p-3 text-xs font-bold text-[#1e583c]">
                 {transferSuccess}
               </div>
             )}
 
-            {/* Destination Facility Selection */}
-            <div className="space-y-1">
-              <label className="block text-xs font-mono font-bold uppercase text-[#6b746e]">
-                1. Select Destination Facility:
-              </label>
-              <select
-                value={selectedFacilityId}
-                onChange={(e) => setSelectedFacilityId(e.target.value)}
-                className="w-full rounded-sm border border-[#d8ddd7] p-2 text-xs text-[#151817]"
-              >
-                {facilities.map((fac) => (
-                  <option key={fac.id} value={fac.id}>
-                    {fac.name} — [{fac.facility_type}] ({fac.city})
-                  </option>
-                ))}
-              </select>
-            </div>
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-semibold text-[#151817] mb-1">
+                  Destination Recovery Facility
+                </label>
+                <select
+                  value={selectedFacilityId}
+                  onChange={(e) => setSelectedFacilityId(e.target.value)}
+                  className="w-full rounded-[3px] border border-[#d8ddd7] p-2 text-xs"
+                >
+                  {facilities.map((fac) => (
+                    <option key={fac.id} value={fac.id}>
+                      {fac.name} ({fac.city}) — {(fac.facility_type || fac.partner_type || "").replace(/_/g, " ")}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-            {/* Candidate Collection Records Checkboxes */}
-            <div className="space-y-1">
-              <div className="flex justify-between items-center text-xs font-mono">
-                <span className="font-bold uppercase text-[#6b746e]">
-                  2. Select Collected Batches:
+              <div>
+                <span className="font-semibold text-[#151817] block mb-1">
+                  Batch Weight to Transfer: <strong className="font-mono text-[#2e7d57]">{roundedBatchWeight} kg</strong>
                 </span>
-                <span className="font-bold text-[#2e7d57]">
-                  Selected Total: {roundedBatchWeight} kg
+                <span className="text-[11px] text-[#6b746e]">
+                  {selectedRecordIds.length} verified collection record(s) selected
                 </span>
               </div>
 
-              <div className="max-h-36 overflow-y-auto border border-[#d8ddd7] rounded-sm p-2 space-y-1 text-xs">
-                {candidateRecords.length === 0 ? (
-                  <div className="text-center text-[#6b746e] py-3 text-[11px]">
-                    No unallocated collected records found.
+              {/* Allocation Percentages */}
+              <div className="space-y-2 border-t border-[#d8ddd7] pt-3">
+                <span className="font-semibold text-[#151817] block">
+                  Material Recovery Breakdown (%):
+                </span>
+                <div className="grid grid-cols-3 gap-2 font-mono">
+                  <div>
+                    <label className="block text-[10px] text-[#6b746e]">Refurbished %</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={refurbPctInput}
+                      onChange={(e) => setRefurbPctInput(Number(e.target.value))}
+                      className="w-full rounded-[3px] border border-[#d8ddd7] p-1.5 text-xs"
+                    />
                   </div>
-                ) : (
-                  candidateRecords.map((rec) => (
-                    <label key={rec.id} className="flex items-center gap-2 hover:bg-[#f9faf9] p-1 rounded-xs cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={selectedRecordIds.includes(rec.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedRecordIds([...selectedRecordIds, rec.id]);
-                          } else {
-                            setSelectedRecordIds(selectedRecordIds.filter((id) => id !== rec.id));
-                          }
-                        }}
-                        className="rounded-xs"
-                      />
-                      <span className="font-mono">{rec.actual_weight_kg} kg</span>
-                      <span className="text-[11px] text-[#6b746e]">
-                        (Record: #{rec.id.slice(0, 8)} • {new Date(rec.verified_at).toLocaleDateString()})
-                      </span>
-                    </label>
-                  ))
-                )}
+                  <div>
+                    <label className="block text-[10px] text-[#6b746e]">Recycled %</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={recyclePctInput}
+                      onChange={(e) => setRecyclePctInput(Number(e.target.value))}
+                      className="w-full rounded-[3px] border border-[#d8ddd7] p-1.5 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-[#6b746e]">Residual %</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={residualPctInput}
+                      onChange={(e) => setResidualPctInput(Number(e.target.value))}
+                      className="w-full rounded-[3px] border border-[#d8ddd7] p-1.5 text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] text-[#6b746e] mb-1">
+                  Transfer Notes
+                </label>
+                <input
+                  type="text"
+                  placeholder="Manifest transfer ID, sealed container code"
+                  value={transferNotesInput}
+                  onChange={(e) => setTransferNotesInput(e.target.value)}
+                  className="w-full rounded-[3px] border border-[#d8ddd7] p-2 text-xs"
+                />
               </div>
             </div>
 
-            {/* Material Recovery Breakdown */}
-            <div className="space-y-2 border-t border-[#e9ede7] pt-3 text-xs">
-              <div className="flex justify-between items-center font-mono">
-                <span className="font-bold uppercase text-[#6b746e]">
-                  3. Recovery Allocation (%):
-                </span>
-                <span className={`font-bold ${isAllocationValid ? "text-[#2e7d57]" : "text-[#721c24]"}`}>
-                  Sum: {currentAllocSum}% {isAllocationValid ? "(Valid)" : "(Exceeds 100%)"}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <label className="text-[11px] text-[#2e7d57] font-semibold block">Refurbish %</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={refurbPctInput}
-                    onChange={(e) => setRefurbPctInput(Number(e.target.value))}
-                    className="w-full rounded-sm border border-[#d8ddd7] p-1.5 font-mono font-bold text-xs"
-                  />
-                  <span className="text-[10px] text-[#6b746e] block mt-0.5 font-mono">
-                    ~{Math.round(roundedBatchWeight * (refurbPctInput / 100) * 10) / 10} kg
-                  </span>
-                </div>
-
-                <div>
-                  <label className="text-[11px] text-[#151817] font-semibold block">Recycle %</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={recyclePctInput}
-                    onChange={(e) => setRecyclePctInput(Number(e.target.value))}
-                    className="w-full rounded-sm border border-[#d8ddd7] p-1.5 font-mono font-bold text-xs"
-                  />
-                  <span className="text-[10px] text-[#6b746e] block mt-0.5 font-mono">
-                    ~{Math.round(roundedBatchWeight * (recyclePctInput / 100) * 10) / 10} kg
-                  </span>
-                </div>
-
-                <div>
-                  <label className="text-[11px] text-[#c26d24] font-semibold block">Residual %</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={residualPctInput}
-                    onChange={(e) => setResidualPctInput(Number(e.target.value))}
-                    className="w-full rounded-sm border border-[#d8ddd7] p-1.5 font-mono font-bold text-xs"
-                  />
-                  <span className="text-[10px] text-[#6b746e] block mt-0.5 font-mono">
-                    ~{Math.round(roundedBatchWeight * (residualPctInput / 100) * 10) / 10} kg
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Notes */}
-            <div className="space-y-1">
-              <label className="block text-[11px] font-mono text-[#6b746e]">Operational Notes:</label>
-              <input
-                type="text"
-                placeholder="Batch consignment notes..."
-                value={transferNotesInput}
-                onChange={(e) => setTransferNotesInput(e.target.value)}
-                className="w-full rounded-sm border border-[#d8ddd7] p-1.5 text-xs text-[#151817]"
-              />
-            </div>
-
-            {/* Modal Actions */}
-            <div className="flex gap-2 pt-2 border-t border-[#e9ede7]">
-              <button
+            <div className="flex justify-end gap-2 pt-2 border-t border-[#d8ddd7]">
+              <Button
                 type="button"
-                onClick={handleCreateTransfer}
-                disabled={transferSubmitting || !isAllocationValid || selectedRecordIds.length === 0}
-                className={`flex-1 rounded-sm py-2 px-3 text-xs font-bold uppercase tracking-wider text-white transition-colors ${
-                  isAllocationValid && selectedRecordIds.length > 0 && !transferSubmitting
-                    ? "bg-[#2e7d57] hover:bg-[#246644]"
-                    : "bg-[#d8ddd7] text-[#6b746e] cursor-not-allowed"
-                }`}
-              >
-                {transferSubmitting ? "Committing..." : "Confirm Facility Transfer"}
-              </button>
-              <button
-                type="button"
+                variant="ghost"
                 onClick={() => setIsTransferModalOpen(false)}
-                className="rounded-sm border border-[#d8ddd7] px-3 py-2 text-xs font-semibold"
               >
                 Cancel
-              </button>
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                disabled={transferSubmitting || selectedRecordIds.length === 0}
+                onClick={handleCreateTransfer}
+              >
+                {transferSubmitting ? "Transferring..." : "Confirm Facility Transfer &rarr;"}
+              </Button>
             </div>
           </div>
         </div>

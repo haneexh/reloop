@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import Link from "next/link";
 import jsQR from "jsqr";
 import type { RouteStopDetail, RouteProgress } from "@/lib/collector-engine";
+import { Card } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
 
 interface RouteListItem {
   id: string;
@@ -35,8 +37,7 @@ interface SelectedRouteDetail {
 }
 
 export default function CollectorOpsPage() {
-  // Collector identity state
-  const [collectorRole, setCollectorRole] = useState<"COLLECTOR" | "DISPATCHER">("COLLECTOR");
+  const [collectorRole] = useState<"COLLECTOR" | "DISPATCHER">("COLLECTOR");
   const [collectorId] = useState<string>("COL-HYD-04");
 
   // Route listing & selection
@@ -45,7 +46,7 @@ export default function CollectorOpsPage() {
   const [routeDetail, setRouteDetail] = useState<SelectedRouteDetail | null>(null);
   const [stops, setStops] = useState<RouteStopDetail[]>([]);
   const [progress, setProgress] = useState<RouteProgress | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [, setLoading] = useState<boolean>(true);
   const [actionLoading, setActionLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -58,6 +59,7 @@ export default function CollectorOpsPage() {
 
   // Camera & QR Scanner state
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
+  const [manualInputActive, setManualInputActive] = useState<boolean>(false);
   const [qrInput, setQrInput] = useState<string>("");
   const [tokenVerified, setTokenVerified] = useState<boolean>(false);
   const [tokenError, setTokenError] = useState<string | null>(null);
@@ -65,7 +67,6 @@ export default function CollectorOpsPage() {
   // Weighment state
   const [actualWeightInput, setActualWeightInput] = useState<string>("");
   const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [gpsStatus, setGpsStatus] = useState<"pending" | "captured" | "unavailable">("pending");
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -129,22 +130,16 @@ export default function CollectorOpsPage() {
   // Geolocation capture attempt (non-blocking)
   const attemptGpsCapture = useCallback(() => {
     if (typeof window !== "undefined" && "geolocation" in navigator) {
-      setGpsStatus("pending");
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           setGpsCoords({
             lat: pos.coords.latitude,
             lng: pos.coords.longitude,
           });
-          setGpsStatus("captured");
         },
-        () => {
-          setGpsStatus("unavailable");
-        },
+        () => {},
         { timeout: 6000, enableHighAccuracy: true }
       );
-    } else {
-      setGpsStatus("unavailable");
     }
   }, []);
 
@@ -163,14 +158,21 @@ export default function CollectorOpsPage() {
   }, []);
 
   // Open Verify Modal for a Stop
-  const openVerifyModal = (stop: RouteStopDetail) => {
+  const openVerifyModal = (stop: RouteStopDetail, openCamera = false) => {
     setActiveStop(stop);
     setQrInput(stop.qr_token || "");
     setTokenVerified(false);
     setTokenError(null);
     setActualWeightInput(stop.estimated_weight_kg ? String(stop.estimated_weight_kg) : "5.0");
     setIsVerifyModalOpen(true);
+    setManualInputActive(!openCamera);
     attemptGpsCapture();
+
+    if (openCamera) {
+      setTimeout(() => {
+        startCamera();
+      }, 200);
+    }
   };
 
   // Close Verify Modal
@@ -180,11 +182,13 @@ export default function CollectorOpsPage() {
     setActiveStop(null);
     setTokenVerified(false);
     setTokenError(null);
+    setManualInputActive(false);
   };
 
   // Start Camera Stream
   const startCamera = async () => {
     setIsCameraActive(true);
+    setManualInputActive(false);
     setTokenError(null);
 
     try {
@@ -222,8 +226,9 @@ export default function CollectorOpsPage() {
         }, 350);
       }
     } catch {
-      setTokenError("Camera access denied or unavailable. Please enter the QR token manually.");
+      setTokenError("Camera access denied or unavailable. Please enter the QR code manually.");
       setIsCameraActive(false);
+      setManualInputActive(true);
     }
   };
 
@@ -231,7 +236,7 @@ export default function CollectorOpsPage() {
   const validateTokenAgainstStop = (token: string, stop: RouteStopDetail | null) => {
     setTokenError(null);
     if (!token || !token.trim()) {
-      setTokenError("Please enter a valid QR token.");
+      setTokenError("Please enter a valid QR code.");
       setTokenVerified(false);
       return;
     }
@@ -245,13 +250,12 @@ export default function CollectorOpsPage() {
     const cleanInput = token.trim().toUpperCase();
     const cleanExpected = (stop.qr_token || "").trim().toUpperCase();
 
-    // Check if token matches expected stop token or request ID
     if (cleanInput === cleanExpected || cleanInput === stop.request_id?.toUpperCase()) {
       setTokenVerified(true);
       setTokenError(null);
     } else {
       setTokenVerified(false);
-      setTokenError(`Token mismatch: "${cleanInput}" does not match this stop (${cleanExpected || stop.request_id}).`);
+      setTokenError(`Token mismatch: "${cleanInput}" does not match this stop (${cleanExpected}).`);
     }
   };
 
@@ -312,7 +316,6 @@ export default function CollectorOpsPage() {
       });
 
       closeVerifyModal();
-      // Re-fetch route details to sync 100% with database
       await fetchRouteDetails(selectedRouteId);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error confirming collection.";
@@ -392,7 +395,7 @@ export default function CollectorOpsPage() {
       setActiveStop(null);
       await fetchRouteDetails(selectedRouteId);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Error skipping stop.";
+      const msg = err instanceof Error ? err.message : "Defer error.";
       setError(msg);
     } finally {
       setActionLoading(false);
@@ -400,490 +403,393 @@ export default function CollectorOpsPage() {
   };
 
   // Next uncollected stop
-  const nextStop = stops.find(
-    (s) => s.stop_type === "COLLECTION_STOP" && !s.is_collected
-  );
+  const nextStop = stops.find((s) => s.status === "scheduled" || s.status === "assigned" || s.status === "pending");
+  const completedStopsCount = progress?.completed_stops ?? stops.filter((s) => s.status === "collected").length;
+  const totalStopsCount = progress?.total_stops ?? stops.length;
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 pb-12 px-2 sm:px-4">
-      {/* Top Header / Mode Switcher */}
-      <div className="bg-white border border-[#d8ddd7] rounded-sm p-4 space-y-3 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#e9ede7] pb-3">
-          <div className="flex items-center gap-2">
-            <span className="h-3 w-3 rounded-full bg-[#2e7d57] animate-pulse"></span>
-            <h1 className="text-xl font-bold font-display text-[#151817] tracking-tight">
-              Collector Field Operations
+    <div className="mx-auto max-w-2xl py-2 sm:py-6 space-y-6">
+      {/* 1. Header & Route Summary */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-[#2e7d57] font-bold block">
+              Field Collector Console
+            </span>
+            <h1 className="text-2xl font-display font-bold text-[#151817]">
+              Today&apos;s Collections
             </h1>
           </div>
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-mono text-[#6b746e]">Role Auth:</label>
+
+          {/* Route selector dropdown */}
+          {routes.length > 1 && (
             <select
-              value={collectorRole}
-              onChange={(e) => setCollectorRole(e.target.value as "COLLECTOR" | "DISPATCHER")}
-              className="rounded-sm border border-[#d8ddd7] bg-[#f4f5f1] px-2 py-1 text-xs font-mono font-semibold text-[#151817]"
+              value={selectedRouteId}
+              onChange={(e) => setSelectedRouteId(e.target.value)}
+              className="rounded-[3px] border border-[#d8ddd7] bg-white px-2.5 py-1.5 text-xs font-mono font-semibold text-[#151817]"
             >
-              <option value="COLLECTOR">COLLECTOR</option>
-              <option value="DISPATCHER">DISPATCHER</option>
+              {routes.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.vehicle_code} ({r.stops_count} stops)
+                </option>
+              ))}
             </select>
-          </div>
+          )}
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono text-[#6b746e]">
-          <div>
-            COLLECTOR ID: <span className="font-bold text-[#151817]">{collectorId}</span>
-          </div>
-          <div>
-            ASSIGNED VEHICLE:{" "}
-            <span className="font-bold text-[#151817]">
-              {routeDetail?.vehicle_code || "Select Route"}
-            </span>{" "}
-            {routeDetail && (
-              <span className="text-[#2e7d57]">
-                (Cap: {routeDetail.vehicle_capacity_kg} kg)
-              </span>
+        {/* Progress & Route Context Bar */}
+        {routeDetail && (
+          <Card className="p-4 bg-white border-[#d8ddd7] space-y-3 shadow-sm">
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <span className="font-mono font-bold text-sm text-[#151817]">
+                  {routeDetail.vehicle_code}
+                </span>
+                <span className="text-[#6b746e]">·</span>
+                <span className="text-[#6b746e]">
+                  {routeDetail.zone_name || "Assigned Zone"}
+                </span>
+              </div>
+              <Badge
+                variant={routeDetail.status === "in_progress" ? "warning" : routeDetail.status === "completed" ? "success" : "neutral"}
+                size="sm"
+              >
+                {routeDetail.status.replace(/_/g, " ")}
+              </Badge>
+            </div>
+
+            {/* Simple Progress Bar */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs font-mono">
+                <span className="font-semibold text-[#151817]">
+                  {completedStopsCount} of {totalStopsCount} pickups completed
+                </span>
+                <span className="text-[#2e7d57] font-bold">
+                  {progress?.total_actual_kg ?? routeDetail.total_load_kg} / {routeDetail.vehicle_capacity_kg} kg
+                </span>
+              </div>
+              <div className="h-2 w-full bg-[#e9ede7] rounded-sm overflow-hidden">
+                <div
+                  className="h-full bg-[#2e7d57] transition-all duration-300"
+                  style={{
+                    width: `${totalStopsCount > 0 ? (completedStopsCount / totalStopsCount) * 100 : 0}%`,
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Start / Complete Route Controls */}
+            {routeDetail.status === "planned" && (
+              <Button
+                type="button"
+                variant="primary"
+                onClick={() => handleRouteAction("start_route")}
+                disabled={actionLoading}
+                className="w-full py-2.5 text-xs font-bold"
+              >
+                Start Today&apos;s Route &rarr;
+              </Button>
             )}
-          </div>
-          <div>
-            JURISDICTION:{" "}
-            <span className="font-bold text-[#151817]">
-              {routeDetail ? `${routeDetail.zone_code} (${routeDetail.zone_name})` : "Hyderabad"}
-            </span>
-          </div>
-        </div>
+            {routeDetail.status === "in_progress" && completedStopsCount === totalStopsCount && totalStopsCount > 0 && (
+              <Button
+                type="button"
+                variant="primary"
+                onClick={() => handleRouteAction("complete_route")}
+                disabled={actionLoading}
+                className="w-full py-2.5 text-xs font-bold bg-[#173d2c]"
+              >
+                ✓ Complete Route &amp; Return to Depot
+              </Button>
+            )}
+          </Card>
+        )}
       </div>
 
-      {/* Notifications */}
       {notification && (
         <div
-          className={`rounded-sm p-3 text-xs font-medium flex items-center justify-between ${
+          className={`rounded-[3px] p-3 text-xs flex items-center justify-between ${
             notification.type === "success"
-              ? "bg-[#edf5f0] text-[#1e583c] border border-[#bcdbc8]"
-              : "bg-[#fdf2f2] text-[#721c24] border border-[#f5c6cb]"
+              ? "bg-[#edf5f0] border border-[#bcdbc8] text-[#1e583c]"
+              : "bg-[#fdf2f2] border border-[#f5c6cb] text-[#721c24]"
           }`}
         >
           <span>{notification.message}</span>
           <button
-            type="button"
             onClick={() => setNotification(null)}
-            className="text-xs font-bold underline ml-2"
+            className="font-bold ml-2 text-sm"
           >
-            Dismiss
+            &times;
           </button>
         </div>
       )}
 
       {error && (
-        <div className="rounded-sm bg-[#fdf2f2] border border-[#f5c6cb] p-3 text-xs text-[#721c24]">
+        <div className="rounded-[3px] border border-[#f5c6cb] bg-[#fdf2f2] p-3 text-xs text-[#721c24]">
           {error}
         </div>
       )}
 
-      {/* Route Selector & Route Controls */}
-      <div className="bg-white border border-[#d8ddd7] rounded-sm p-4 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex-1">
-            <label className="block text-xs font-mono font-bold uppercase text-[#6b746e] mb-1">
-              Select Active Route:
-            </label>
-            <select
-              value={selectedRouteId}
-              onChange={(e) => setSelectedRouteId(e.target.value)}
-              className="w-full rounded-sm border border-[#d8ddd7] p-2 text-xs font-mono text-[#151817]"
-              disabled={loading || actionLoading}
-            >
-              {routes.length === 0 && <option value="">No routes found</option>}
-              {routes.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.vehicle_code} — {r.zone_code || "HYD"} ({r.route_date}) | {r.stops_count} stops | Status: {r.status}
-                </option>
-              ))}
-            </select>
-          </div>
+      {/* 2. "Next Pickup" Focus Card */}
+      {nextStop ? (
+        <div className="space-y-3">
+          <span className="text-xs font-bold uppercase tracking-wider font-mono text-[#2e7d57] block">
+            Next Pickup · Stop #{nextStop.sequence}
+          </span>
 
-          {routeDetail && (
-            <div className="flex items-center gap-2 pt-2 sm:pt-5">
-              {routeDetail.status === "planned" || routeDetail.status === "assigned" ? (
-                <button
-                  type="button"
-                  onClick={() => handleRouteAction("start_route")}
-                  disabled={actionLoading}
-                  className="rounded-sm bg-[#2e7d57] px-4 py-2 text-xs font-semibold text-white hover:bg-[#246644] transition-colors"
-                >
-                  🚀 Start Route
-                </button>
-              ) : routeDetail.status === "in_progress" ? (
-                <button
-                  type="button"
-                  onClick={() => handleRouteAction("complete_route")}
-                  disabled={actionLoading}
-                  className="rounded-sm bg-[#151817] px-4 py-2 text-xs font-semibold text-white hover:bg-[#333a35] transition-colors"
-                >
-                  🏁 Complete Route
-                </button>
-              ) : (
-                <span className="rounded-sm bg-[#e9ede7] px-3 py-1 text-xs font-mono font-bold uppercase text-[#2e7d57]">
-                  Route Completed
+          <Card className="border-[#2e7d57] p-5 space-y-4 shadow-sm bg-white">
+            <div className="space-y-1">
+              <span className="text-[11px] font-mono text-[#6b746e] uppercase">
+                {nextStop.pickup_slot || "Scheduled Slot"} · Stop #{nextStop.sequence}
+              </span>
+              <h2 className="text-base font-bold text-[#151817]">
+                {nextStop.locality || `Collection Location · Stop #${nextStop.sequence}`}
+              </h2>
+            </div>
+
+            {/* Citizen Details */}
+            <div className="grid grid-cols-2 gap-3 text-xs bg-[#f4f5f1] p-3 rounded-[3px] border border-[#d8ddd7]">
+              <div>
+                <span className="text-[#6b746e] block text-[11px]">Request Token:</span>
+                <span className="font-mono font-bold text-[#2e7d57]">
+                  {nextStop.qr_token || nextStop.request_id?.slice(0, 8) || "N/A"}
                 </span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Live Derived Progress Cards */}
-        {progress && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
-            <div className="rounded-sm border border-[#e9ede7] bg-[#f9faf9] p-3 text-center">
-              <span className="text-[10px] font-mono uppercase text-[#6b746e] block">
-                Stops Progress
-              </span>
-              <span className="text-lg font-bold font-mono text-[#151817]">
-                {progress.completed_stops} / {progress.total_stops}
-              </span>
-              <span className="text-[10px] text-[#2e7d57] block font-semibold">
-                {progress.remaining_stops} remaining ({progress.completion_percentage}%)
-              </span>
-            </div>
-
-            <div className="rounded-sm border border-[#e9ede7] bg-[#f9faf9] p-3 text-center">
-              <span className="text-[10px] font-mono uppercase text-[#6b746e] block">
-                Collected Weight
-              </span>
-              <span className="text-lg font-bold font-mono text-[#151817]">
-                {progress.total_actual_kg} kg
-              </span>
-              <span className="text-[10px] text-[#6b746e] block">
-                Planned: {progress.total_estimated_kg} kg
-              </span>
-            </div>
-
-            <div className="rounded-sm border border-[#e9ede7] bg-[#f9faf9] p-3 text-center">
-              <span className="text-[10px] font-mono uppercase text-[#6b746e] block">
-                Vehicle Capacity
-              </span>
-              <span className="text-lg font-bold font-mono text-[#151817]">
-                {progress.vehicle_capacity_kg} kg
-              </span>
-              <span className="text-[10px] text-[#2e7d57] block font-semibold">
-                {progress.remaining_capacity_kg} kg space left
-              </span>
-            </div>
-
-            <div className="rounded-sm border border-[#e9ede7] bg-[#f9faf9] p-3 text-center">
-              <span className="text-[10px] font-mono uppercase text-[#6b746e] block">
-                Payload Utilization
-              </span>
-              <span className="text-lg font-bold font-mono text-[#151817]">
-                {progress.utilization_percentage}%
-              </span>
-              <div className="w-full bg-[#d8ddd7] h-1.5 rounded-full mt-1.5 overflow-hidden">
-                <div
-                  className="bg-[#2e7d57] h-full"
-                  style={{ width: `${Math.min(100, progress.utilization_percentage)}%` }}
-                ></div>
+              </div>
+              <div>
+                <span className="text-[#6b746e] block text-[11px]">Est. Weight:</span>
+                <span className="font-mono font-bold text-[#151817]">
+                  ~{nextStop.estimated_weight_kg} kg
+                </span>
               </div>
             </div>
-          </div>
-        )}
-      </div>
 
-      {/* Next Up / Spotlight Stop Card (Mobile Priority Target) */}
-      {nextStop && (
-        <div className="rounded-sm border-2 border-[#2e7d57] bg-white p-5 space-y-4 shadow-sm">
-          <div className="flex items-center justify-between border-b border-[#edf5f0] pb-2">
-            <div className="flex items-center gap-2">
-              <span className="rounded-sm bg-[#2e7d57] text-white px-2 py-0.5 text-xs font-mono font-bold">
-                STOP #{nextStop.sequence}
-              </span>
-              <span className="text-xs font-bold text-[#151817] uppercase tracking-wider font-mono">
-                Current Active Pickup
-              </span>
-            </div>
-            {nextStop.priority && (
-              <span
-                className={`rounded-sm px-2 py-0.5 text-[10px] font-mono font-bold uppercase ${
-                  nextStop.priority === "urgent"
-                    ? "bg-[#fdf2f2] text-[#721c24] border border-[#f5c6cb]"
-                    : nextStop.priority === "high"
-                    ? "bg-[#fff3cd] text-[#856404] border border-[#ffeeba]"
-                    : "bg-[#e9ede7] text-[#151817]"
-                }`}
-              >
-                {nextStop.priority}
-              </span>
+            {/* Items summary */}
+            {nextStop.items_summary && (
+              <div className="space-y-1 border-t border-[#d8ddd7] pt-2 text-xs">
+                <span className="text-[11px] font-semibold text-[#6b746e]">Items to Collect:</span>
+                <p className="font-mono text-[#151817] bg-white p-2 rounded-[2px] border border-[#e9ede7]">
+                  {nextStop.items_summary}
+                </p>
+              </div>
             )}
-          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-            <div>
-              <span className="text-[#6b746e] text-[11px] block">Locality / Area:</span>
-              <span className="font-semibold text-sm text-[#151817]">
-                {nextStop.locality || "Assigned Municipal Stop"}
-              </span>
-            </div>
-            <div>
-              <span className="text-[#6b746e] text-[11px] block">Scheduled Window:</span>
-              <span className="font-mono font-semibold text-[#151817]">
-                {nextStop.pickup_slot || "Regular Route Hours"}
-              </span>
-            </div>
-            <div>
-              <span className="text-[#6b746e] text-[11px] block">Items Manifest:</span>
-              <span className="font-medium text-[#151817]">
-                {nextStop.items_summary || "E-Waste Parcel"}
-              </span>
-            </div>
-            <div>
-              <span className="text-[#6b746e] text-[11px] block">Estimated Weight:</span>
-              <span className="font-mono font-bold text-[#2e7d57]">
-                ~{nextStop.estimated_weight_kg} kg
-              </span>
-            </div>
-          </div>
+            {/* Primary Action Buttons (Large, Touch-Friendly, Min 48px) */}
+            <div className="pt-2 flex flex-col gap-2.5">
+              <Button
+                type="button"
+                variant="primary"
+                onClick={() => openVerifyModal(nextStop, true)}
+                className="w-full min-h-[48px] text-sm font-bold flex items-center justify-center gap-2"
+              >
+                <span>📷</span>
+                <span>Scan Pickup Code</span>
+              </Button>
 
-          <div className="pt-2 flex flex-col sm:flex-row gap-2">
-            <button
-              type="button"
-              onClick={() => openVerifyModal(nextStop)}
-              className="flex-1 rounded-sm bg-[#2e7d57] py-3 px-4 text-xs font-bold text-white uppercase tracking-wider hover:bg-[#246644] text-center transition-colors flex items-center justify-center gap-2"
-            >
-              <span>📷</span> Scan QR / Verify Pickup
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setActiveStop(nextStop);
-                setIsDeferModalOpen(true);
-              }}
-              className="rounded-sm border border-[#d8ddd7] bg-[#f4f5f1] py-3 px-4 text-xs font-semibold text-[#6b746e] hover:bg-[#e9ede7] transition-colors"
-            >
-              ⏭ Skip / Defer
-            </button>
-          </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => openVerifyModal(nextStop, false)}
+                  className="min-h-[44px] text-xs font-semibold"
+                >
+                  Enter Code Manually
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    setActiveStop(nextStop);
+                    setIsDeferModalOpen(true);
+                  }}
+                  className="min-h-[44px] text-xs text-[#991b1b] hover:bg-[#fdf2f2]"
+                >
+                  Skip / Defer Stop
+                </Button>
+              </div>
+            </div>
+          </Card>
         </div>
+      ) : (
+        <Card className="p-8 text-center space-y-2 bg-[#edf5f0] border-[#bcdbc8]">
+          <span className="text-2xl block">✓</span>
+          <p className="text-sm font-bold text-[#1e583c]">All scheduled stops completed!</p>
+          <p className="text-xs text-[#246644]">
+            Consolidated vehicle payload is ready for facility transfer.
+          </p>
+        </Card>
       )}
 
-      {/* Sequential Route Stop Itinerary */}
-      <div className="bg-white border border-[#d8ddd7] rounded-sm p-4 space-y-3">
-        <h2 className="text-xs font-bold text-[#151817] uppercase tracking-wider font-mono border-b border-[#e9ede7] pb-2">
-          Route Itinerary Sequence ({stops.length} checkpoints)
-        </h2>
+      {/* 3. Remaining Stops List */}
+      <div className="space-y-3 pt-2">
+        <span className="text-xs font-bold uppercase tracking-wider font-mono text-[#151817] block">
+          All Route Stops ({stops.length})
+        </span>
 
-        <div className="divide-y divide-[#e9ede7]">
+        <div className="divide-y divide-[#d8ddd7] rounded-[3px] border border-[#d8ddd7] bg-white overflow-hidden">
           {stops.map((stop) => {
-            const isCollection = stop.stop_type === "COLLECTION_STOP";
-            const isCompleted = stop.is_collected;
+            const isDone = stop.status === "collected";
             const isCurrent = nextStop?.sequence === stop.sequence;
 
             return (
               <div
                 key={stop.sequence}
-                className={`py-3 px-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs transition-colors rounded-xs ${
-                  isCurrent
-                    ? "bg-[#edf5f0] border-l-4 border-[#2e7d57]"
-                    : isCompleted
-                    ? "bg-[#fafbfa] opacity-80"
-                    : "hover:bg-[#f9faf9]"
+                className={`p-3.5 flex items-center justify-between gap-3 text-xs ${
+                  isCurrent ? "bg-[#f4f8f5]" : isDone ? "bg-[#fafafa]" : ""
                 }`}
               >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-[#6b746e]">
-                      #{stop.sequence}
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`flex h-6 w-6 items-center justify-center rounded-sm font-mono text-xs font-bold ${
+                      isDone
+                        ? "bg-[#173d2c] text-white"
+                        : isCurrent
+                        ? "bg-[#2e7d57] text-white"
+                        : "bg-[#e9ede7] text-[#6b746e]"
+                    }`}
+                  >
+                    {isDone ? "✓" : stop.sequence}
+                  </span>
+                  <div>
+                    <span className="font-semibold text-[#151817] block">
+                      {stop.locality || `Stop #${stop.sequence}`}
                     </span>
-                    <span
-                      className={`font-semibold ${
-                        isCollection ? "text-[#151817]" : "text-[#6b746e]"
-                      }`}
-                    >
-                      {stop.stop_type === "DEPOT_DEPARTURE"
-                        ? `Depot Departure (${routeDetail?.depot_name || "Depot"})`
-                        : stop.stop_type === "DEPOT_RETURN"
-                        ? `Depot Return & Offload (${routeDetail?.depot_name || "Depot"})`
-                        : stop.locality || "Customer Pickup"}
+                    <span className="text-[11px] text-[#6b746e] block font-mono">
+                      {stop.pickup_slot || "Scheduled Slot"} · ~{stop.estimated_weight_kg} kg
                     </span>
-                    {isCompleted && (
-                      <span className="rounded-sm bg-[#edf5f0] border border-[#bcdbc8] text-[#1e583c] px-1.5 py-0.2 text-[10px] font-mono font-bold">
-                        ✓ COLLECTED
-                      </span>
-                    )}
                   </div>
-
-                  {isCollection && (
-                    <div className="text-[11px] text-[#6b746e] flex flex-wrap gap-x-3">
-                      <span>Items: {stop.items_summary || "E-Waste"}</span>
-                      <span>Est: {stop.estimated_weight_kg} kg</span>
-                      {stop.actual_weight_kg && (
-                        <span className="font-mono text-[#2e7d57] font-bold">
-                          Actual: {stop.actual_weight_kg} kg
-                        </span>
-                      )}
-                      {stop.qr_token && (
-                        <span className="font-mono text-[#151817]">Token: {stop.qr_token}</span>
-                      )}
-                    </div>
-                  )}
                 </div>
 
-                {isCollection && (
-                  <div className="flex items-center gap-2 self-end sm:self-auto">
-                    {isCompleted ? (
-                      <div className="text-right">
-                        <span className="text-[10px] text-[#2e7d57] font-mono block">
-                          Verified at Doorstep
-                        </span>
-                        {stop.qr_token && (
-                          <Link
-                            href={`/track/${stop.qr_token}`}
-                            target="_blank"
-                            className="text-[10px] text-[#6b746e] underline hover:text-[#2e7d57]"
-                          >
-                            View Custody
-                          </Link>
-                        )}
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => openVerifyModal(stop)}
-                        className="rounded-sm border border-[#2e7d57] bg-white px-3 py-1.5 text-xs font-semibold text-[#2e7d57] hover:bg-[#edf5f0]"
-                      >
-                        Verify Pickup
-                      </button>
-                    )}
-                  </div>
-                )}
+                <div>
+                  {isDone ? (
+                    <Badge variant="success" size="sm">Collected</Badge>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openVerifyModal(stop, false)}
+                    >
+                      Collect
+                    </Button>
+                  )}
+                </div>
               </div>
             );
           })}
         </div>
       </div>
 
-      {/* ======================================================== */}
-      {/* QR VERIFICATION & WEIGHMENT MODAL */}
-      {/* ======================================================== */}
+      {/* ========================================================= */}
+      {/* VERIFY & WEIGH MODAL */}
+      {/* ========================================================= */}
       {isVerifyModalOpen && activeStop && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-3">
-          <div className="bg-white rounded-sm border border-[#d8ddd7] max-w-lg w-full max-h-[92vh] overflow-y-auto p-5 space-y-4 shadow-xl">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-[#e9ede7] pb-3">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4 backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-t-lg sm:rounded-[3px] border border-[#d8ddd7] bg-white p-5 space-y-5 shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-[#d8ddd7] pb-3">
               <div>
-                <span className="text-[10px] font-mono font-bold uppercase text-[#6b746e]">
-                  Doorstep Verification
+                <span className="text-[10px] font-mono text-[#2e7d57] uppercase font-bold block">
+                  Stop #{activeStop.sequence} Handover
                 </span>
-                <h3 className="text-base font-bold font-display text-[#151817]">
-                  Stop #{activeStop.sequence} — {activeStop.locality}
+                <h3 className="text-base font-bold text-[#151817]">
+                  Verify Pickup Pass
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={closeVerifyModal}
-                className="text-lg font-bold text-[#6b746e] hover:text-[#151817]"
+                className="text-lg font-bold text-[#6b746e] hover:text-[#151817] px-2"
               >
-                ✕
+                &times;
               </button>
             </div>
 
-            {/* Stop Manifest Summary */}
-            <div className="rounded-sm bg-[#f9faf9] border border-[#e9ede7] p-3 text-xs space-y-1">
-              <div className="flex justify-between text-[#6b746e]">
-                <span>Items:</span>
-                <span className="font-semibold text-[#151817]">
-                  {activeStop.items_summary || "E-Waste Parcel"}
-                </span>
+            {tokenError && (
+              <div className="rounded-[3px] border border-[#f5c6cb] bg-[#fdf2f2] p-3 text-xs text-[#721c24]">
+                {tokenError}
               </div>
-              <div className="flex justify-between text-[#6b746e]">
-                <span>Intake Estimated Weight:</span>
-                <span className="font-mono font-bold text-[#151817]">
-                  {activeStop.estimated_weight_kg} kg
-                </span>
-              </div>
-              <div className="flex justify-between text-[#6b746e]">
-                <span>Expected Reference Token:</span>
-                <span className="font-mono font-bold text-[#2e7d57]">
-                  {activeStop.qr_token || activeStop.request_id}
-                </span>
-              </div>
-            </div>
+            )}
 
-            {/* Camera / Manual Verification Section */}
-            <div className="space-y-3">
-              <label className="block text-xs font-mono font-bold uppercase text-[#6b746e]">
-                1. QR Pass Verification
-              </label>
-
-              {isCameraActive ? (
-                <div className="relative rounded-sm overflow-hidden bg-black aspect-video flex items-center justify-center">
-                  <video ref={videoRef} className="w-full h-full object-cover" />
+            {/* Camera Viewfinder */}
+            {isCameraActive && (
+              <div className="space-y-2 text-center">
+                <div className="relative overflow-hidden rounded-[3px] bg-black h-56 flex items-center justify-center">
+                  <video
+                    ref={videoRef}
+                    className="h-full w-full object-cover"
+                    muted
+                  />
                   <canvas ref={canvasRef} className="hidden" />
-                  <div className="absolute inset-0 border-2 border-white/40 pointer-events-none flex items-center justify-center">
-                    <div className="w-48 h-48 border-2 border-[#2e7d57] rounded-sm"></div>
-                  </div>
+                  <div className="absolute inset-8 border-2 border-[#2e7d57] rounded-sm pointer-events-none" />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-[#6b746e]">Aim camera at citizen pickup pass</span>
                   <button
                     type="button"
-                    onClick={stopCamera}
-                    className="absolute bottom-2 right-2 rounded-sm bg-black/80 px-2 py-1 text-[10px] text-white font-mono"
+                    onClick={() => {
+                      stopCamera();
+                      setManualInputActive(true);
+                    }}
+                    className="text-xs text-[#2e7d57] font-semibold hover:underline"
                   >
-                    Close Camera
+                    Enter manually instead
                   </button>
                 </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={startCamera}
-                  className="w-full rounded-sm border border-[#d8ddd7] bg-[#f4f5f1] py-2 text-xs font-semibold text-[#151817] hover:bg-[#e9ede7] flex items-center justify-center gap-2"
-                >
-                  <span>📷</span> Turn On Camera Scanner
-                </button>
-              )}
-
-              {/* Manual Token Input Fallback */}
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Enter QR token (e.g. RLP-HYD-...)"
-                  value={qrInput}
-                  onChange={(e) => {
-                    setQrInput(e.target.value);
-                    setTokenVerified(false);
-                  }}
-                  className="flex-1 rounded-sm border border-[#d8ddd7] p-2 text-xs font-mono uppercase text-[#151817]"
-                />
-                <button
-                  type="button"
-                  onClick={() => validateTokenAgainstStop(qrInput, activeStop)}
-                  className="rounded-sm bg-[#151817] px-3 py-2 text-xs font-semibold text-white hover:bg-[#333a35]"
-                >
-                  Verify
-                </button>
               </div>
+            )}
 
-              {tokenVerified && (
-                <div className="rounded-sm bg-[#edf5f0] border border-[#bcdbc8] p-2 text-xs text-[#1e583c] flex items-center gap-1.5">
-                  <span>✓</span> Token Authenticated for Stop #{activeStop.sequence}
+            {/* Manual Code Input */}
+            {manualInputActive && (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-[#151817] mb-1">
+                    Pickup Pass Code
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={qrInput}
+                      onChange={(e) => {
+                        setQrInput(e.target.value);
+                        setTokenVerified(false);
+                      }}
+                      placeholder="RLP-HYD-XXXX"
+                      className="flex-1 rounded-[3px] border border-[#d8ddd7] p-2.5 font-mono text-sm uppercase"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => validateTokenAgainstStop(qrInput, activeStop)}
+                    >
+                      Verify
+                    </Button>
+                  </div>
                 </div>
-              )}
 
-              {tokenError && (
-                <div className="rounded-sm bg-[#fdf2f2] border border-[#f5c6cb] p-2 text-xs text-[#721c24]">
-                  {tokenError}
-                </div>
-              )}
-            </div>
-
-            {/* Actual Weight Section */}
-            <div className="space-y-3 border-t border-[#e9ede7] pt-3">
-              <div className="flex items-center justify-between">
-                <label className="block text-xs font-mono font-bold uppercase text-[#6b746e]">
-                  2. Certified Scale Weighment (kg)
-                </label>
-                {progress && (
-                  <span className="text-[10px] font-mono text-[#2e7d57]">
-                    Vehicle Space: {progress.remaining_capacity_kg} kg left
-                  </span>
+                {!isCameraActive && (
+                  <button
+                    type="button"
+                    onClick={startCamera}
+                    className="text-xs text-[#2e7d57] font-semibold hover:underline"
+                  >
+                    📷 Switch to camera scanner
+                  </button>
                 )}
               </div>
+            )}
 
-              <div className="flex items-center gap-2">
+            {/* Verified Indicator */}
+            {tokenVerified && (
+              <div className="rounded-[3px] border border-[#bcdbc8] bg-[#edf5f0] p-3 text-xs font-bold text-[#1e583c] flex items-center gap-2">
+                <span>✓</span>
+                <span>Pickup pass verified ({qrInput})</span>
+              </div>
+            )}
+
+            {/* Weight Input (Large, Clear Numeric Input) */}
+            <div className="space-y-2 border-t border-[#d8ddd7] pt-4">
+              <label className="block text-xs font-bold text-[#151817] uppercase tracking-wider font-mono">
+                Record Actual Weight
+              </label>
+              <div className="flex items-center gap-3">
                 <input
                   type="number"
                   step="0.1"
@@ -891,136 +797,82 @@ export default function CollectorOpsPage() {
                   max="1000"
                   value={actualWeightInput}
                   onChange={(e) => setActualWeightInput(e.target.value)}
-                  className="w-32 rounded-sm border border-[#d8ddd7] p-2 text-base font-mono font-bold text-[#151817]"
+                  className="flex-1 rounded-[3px] border border-[#d8ddd7] bg-white p-3 font-mono text-xl font-bold text-[#151817] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2e7d57]"
                 />
-                <div className="flex gap-1">
-                  {[0.5, 1.0, 5.0].map((delta) => (
-                    <button
-                      key={delta}
-                      type="button"
-                      onClick={() => {
-                        const cur = parseFloat(actualWeightInput) || 0;
-                        setActualWeightInput((cur + delta).toFixed(1));
-                      }}
-                      className="rounded-sm border border-[#d8ddd7] bg-[#f4f5f1] px-2 py-1 text-xs font-mono font-semibold hover:bg-[#e9ede7]"
-                    >
-                      +{delta}
-                    </button>
-                  ))}
-                </div>
+                <span className="font-mono text-base font-bold text-[#6b746e]">
+                  KG
+                </span>
               </div>
-
-              {/* Variance Indicator */}
-              {actualWeightInput && (
-                <div className="text-[11px] font-mono text-[#6b746e] flex items-center gap-2">
-                  <span>Estimated: {activeStop.estimated_weight_kg} kg</span>
-                  <span>vs</span>
-                  <span className="font-bold text-[#151817]">
-                    Actual: {actualWeightInput} kg
-                  </span>
-                  {activeStop.estimated_weight_kg > 0 && (
-                    <span
-                      className={`font-semibold ${
-                        parseFloat(actualWeightInput) >= activeStop.estimated_weight_kg
-                          ? "text-[#2e7d57]"
-                          : "text-[#c26d24]"
-                      }`}
-                    >
-                      (
-                      {(
-                        parseFloat(actualWeightInput) - activeStop.estimated_weight_kg
-                      ).toFixed(1)}{" "}
-                      kg variance)
-                    </span>
-                  )}
-                </div>
-              )}
-
-              {/* Geolocation Tag Badge */}
-              <div className="text-[10px] font-mono flex items-center gap-1.5 pt-1">
-                {gpsStatus === "captured" && gpsCoords ? (
-                  <span className="text-[#2e7d57]">
-                    📍 GPS Coordinates Attached ({gpsCoords.lat.toFixed(4)}, {gpsCoords.lng.toFixed(4)})
-                  </span>
-                ) : gpsStatus === "pending" ? (
-                  <span className="text-[#6b746e]">📍 Querying GPS position...</span>
-                ) : (
-                  <span className="text-[#6b746e]">📍 GPS Unavailable (Optional — Not Blocking)</span>
-                )}
-              </div>
+              <p className="text-[11px] text-[#6b746e]">
+                Weigh total collected items on your portable digital scale before confirming handover.
+              </p>
             </div>
 
-            {/* Action Buttons */}
-            <div className="border-t border-[#e9ede7] pt-3 flex gap-2">
-              <button
+            {/* Action Bar */}
+            <div className="pt-2 flex flex-col sm:flex-row items-center justify-end gap-2 border-t border-[#d8ddd7]">
+              <Button
                 type="button"
-                onClick={handleConfirmCollection}
-                disabled={actionLoading || !tokenVerified}
-                className={`flex-1 rounded-sm py-2.5 px-4 text-xs font-bold uppercase tracking-wider text-white transition-colors ${
-                  tokenVerified && !actionLoading
-                    ? "bg-[#2e7d57] hover:bg-[#246644]"
-                    : "bg-[#d8ddd7] cursor-not-allowed text-[#6b746e]"
-                }`}
-              >
-                {actionLoading ? "Recording..." : "✓ Confirm Pickup & Weighment"}
-              </button>
-              <button
-                type="button"
+                variant="ghost"
                 onClick={closeVerifyModal}
-                disabled={actionLoading}
-                className="rounded-sm border border-[#d8ddd7] bg-[#f4f5f1] px-4 py-2 text-xs font-semibold text-[#151817] hover:bg-[#e9ede7]"
+                className="w-full sm:w-auto"
               >
                 Cancel
-              </button>
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                disabled={actionLoading || (!tokenVerified && !qrInput.trim())}
+                onClick={handleConfirmCollection}
+                className="w-full sm:w-auto min-h-[48px] px-6 text-sm font-bold"
+              >
+                {actionLoading ? "Confirming..." : "Confirm Collection &rarr;"}
+              </Button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ======================================================== */}
+      {/* ========================================================= */}
       {/* DEFER / SKIP MODAL */}
-      {/* ======================================================== */}
+      {/* ========================================================= */}
       {isDeferModalOpen && activeStop && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-3">
-          <div className="bg-white rounded-sm border border-[#d8ddd7] max-w-sm w-full p-5 space-y-4 shadow-xl">
-            <h3 className="text-base font-bold text-[#151817]">
-              Skip / Defer Stop #{activeStop.sequence}
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-[3px] border border-[#d8ddd7] bg-white p-5 space-y-4 shadow-xl">
+            <h3 className="text-sm font-bold text-[#151817]">
+              Skip Stop #{activeStop.sequence}
             </h3>
             <p className="text-xs text-[#6b746e]">
-              Please state why this scheduled pickup could not be executed:
+              Provide an operational reason why this collection could not be completed today:
             </p>
 
             <select
               value={deferReason}
               onChange={(e) => setDeferReason(e.target.value)}
-              className="w-full rounded-sm border border-[#d8ddd7] p-2 text-xs text-[#151817]"
+              className="w-full rounded-[3px] border border-[#d8ddd7] p-2 text-xs"
             >
-              <option value="Citizen not available">Citizen not available</option>
-              <option value="Premises or gate locked">Premises or gate locked</option>
-              <option value="Hazardous or unaccepted items">Hazardous or unaccepted items</option>
-              <option value="Item already handed over">Item already handed over</option>
-              <option value="Road impassable for vehicle">Road impassable for vehicle</option>
+              <option value="Citizen not available">Citizen not available / Door locked</option>
+              <option value="Item not ready">Item not ready / Citizen cancelled</option>
+              <option value="Incorrect address">Incorrect address / Location unreachable</option>
+              <option value="Non-electronic items">Non-electronic items presented</option>
+              <option value="Vehicle capacity full">Vehicle capacity full</option>
             </select>
 
-            <div className="flex gap-2 pt-2">
-              <button
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
                 type="button"
-                onClick={handleSkipStop}
-                disabled={actionLoading}
-                className="flex-1 rounded-sm bg-[#c26d24] py-2 text-xs font-bold text-white hover:bg-[#a55a1b]"
-              >
-                Confirm Skip
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsDeferModalOpen(false);
-                  setActiveStop(null);
-                }}
-                className="rounded-sm border border-[#d8ddd7] px-3 py-2 text-xs font-semibold"
+                variant="ghost"
+                onClick={() => setIsDeferModalOpen(false)}
               >
                 Cancel
-              </button>
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                disabled={actionLoading}
+                onClick={handleSkipStop}
+              >
+                {actionLoading ? "Updating..." : "Confirm Skip"}
+              </Button>
             </div>
           </div>
         </div>
