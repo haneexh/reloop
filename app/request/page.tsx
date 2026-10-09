@@ -6,6 +6,7 @@ import QRCode from "qrcode";
 import { supabase } from "@/lib/supabase";
 import {
   EWASTE_TAXONOMY,
+  EwasteCategoryInfo,
   mapItemToTaxonomy,
 } from "@/lib/taxonomy-mapper";
 import {
@@ -14,10 +15,67 @@ import {
   CollectionZone,
 } from "@/lib/zone-resolver";
 import { calculateImpact } from "@/lib/impact-calculator";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
+
+// Citizen-friendly category groups
+interface CategoryGroup {
+  id: string;
+  label: string;
+  description: string;
+  keys: string[];
+}
+
+const CITIZEN_CATEGORY_GROUPS: CategoryGroup[] = [
+  {
+    id: "phones_tablets",
+    label: "Phones & Tablets",
+    description: "Smartphones, basic mobile phones, iPads, and tablets",
+    keys: ["smartphone", "tablet", "feature_phone"],
+  },
+  {
+    id: "computers_laptops",
+    label: "Computers & Laptops",
+    description: "Laptops, notebooks, desktop towers, and servers",
+    keys: ["laptop", "desktop_pc"],
+  },
+  {
+    id: "tvs_monitors",
+    label: "TVs & Monitors",
+    description: "Flat screens, computer monitors, and legacy CRT displays",
+    keys: ["crt_tv", "crt_monitor"],
+  },
+  {
+    id: "printers",
+    label: "Printers",
+    description: "Inkjet, laser printers, copiers, and scanners",
+    keys: ["printer"],
+  },
+  {
+    id: "small_electronics",
+    label: "Small Electronics",
+    description: "Audio receivers, DVD players, microwaves, and home appliances",
+    keys: ["small_appliance", "audio_stereo", "media_player"],
+  },
+  {
+    id: "accessories",
+    label: "Accessories",
+    description: "Cables, chargers, power adapters, mice, and keyboards",
+    keys: ["other_electronics"],
+  },
+  {
+    id: "other_ewaste",
+    label: "Other E-Waste",
+    description: "Landline phones, digital cameras, and miscellaneous electronics",
+    keys: ["landline_phone", "camera"],
+  },
+];
 
 interface ManifestItem {
   id: string;
   item_type: string;
+  category_key: string;
   brand: string;
   condition: string;
   estimated_age_years: number;
@@ -30,29 +88,36 @@ interface ManifestItem {
 }
 
 export default function CitizenRequestPage() {
-  // Navigation steps: 1: items, 2: location, 3: schedule, 4: review, 5: confirmed
+  // Stepper state: 1: Items, 2: Location, 3: Schedule & Contact, 4: Review, 5: Confirmed
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4 | 5>(1);
 
   // Manifest items state
   const [items, setItems] = useState<ManifestItem[]>([]);
 
-  // Item form modal / drawer state
+  // Item intake drawer / draft state
   const [isAddingItem, setIsAddingItem] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
-  // Current item being configured
-  const [categoryKey, setCategoryKey] = useState<string>("smartphone");
-  const [itemBrand, setItemBrand] = useState<string>("");
-  const [itemCondition, setItemCondition] = useState<string>("functional");
-  const [itemAge, setItemAge] = useState<number>(2);
-  const [itemWeight, setItemWeight] = useState<number>(0.2);
+  // AI assistant suggestion state
+  const [aiSuggestion, setAiSuggestion] = useState<{
+    deviceTitle: string;
+    brand?: string;
+    condition?: string;
+    taxKey: string;
+  } | null>(null);
+  const [assistantNotice, setAssistantNotice] = useState<string | null>(null);
+
+  // Draft item being edited
+  const [selectedGroup, setSelectedGroup] = useState<string>("phones_tablets");
+  const [selectedTaxKey, setSelectedTaxKey] = useState<string>("smartphone");
   const [itemQuantity, setItemQuantity] = useState<number>(1);
-  const [itemHazards, setItemHazards] = useState<string[]>(["Lithium-ion Battery"]);
+  const [itemBrand, setItemBrand] = useState<string>("");
+  const [itemCondition, setItemCondition] = useState<string>("working");
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | undefined>(undefined);
 
-  // Location & Zone state
+  // Location state
+  const [locationMode, setLocationMode] = useState<"gps" | "manual">("manual");
   const [address, setAddress] = useState<string>("");
   const [userLat, setUserLat] = useState<number | null>(null);
   const [userLng, setUserLng] = useState<number | null>(null);
@@ -60,24 +125,24 @@ export default function CitizenRequestPage() {
     FALLBACK_HYDERABAD_ZONES[0].id
   );
   const [zoneList, setZoneList] = useState<CollectionZone[]>(FALLBACK_HYDERABAD_ZONES);
-  const [resolvedDistanceKm, setResolvedDistanceKm] = useState<number | null>(null);
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
-  const [locationError, setLocationError] = useState<string | null>(null);
+  const [locationNotice, setLocationNotice] = useState<string | null>(null);
 
   // Schedule & Contact state
-  const [citizenName, setCitizenName] = useState<string>("");
-  const [citizenPhone, setCitizenPhone] = useState<string>("");
   const [pickupDate, setPickupDate] = useState<string>(() => {
     const d = new Date();
     d.setDate(d.getDate() + 1); // default to tomorrow
     return d.toISOString().split("T")[0];
   });
   const [pickupSlot, setPickupSlot] = useState<string>("09:00 - 12:00");
+  const [citizenPhone, setCitizenPhone] = useState<string>("");
+  const [citizenName, setCitizenName] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
 
   // Submission state
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [copiedToken, setCopiedToken] = useState(false);
   const [confirmedData, setConfirmedData] = useState<{
     requestId: string;
     qrToken: string;
@@ -92,7 +157,7 @@ export default function CitizenRequestPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load zones on mount
+  // Load municipal zones on mount
   useEffect(() => {
     async function loadZones() {
       try {
@@ -120,25 +185,24 @@ export default function CitizenRequestPage() {
     loadZones();
   }, []);
 
-  // Update category defaults when category changes
-  const handleCategoryChange = (key: string) => {
-    setCategoryKey(key);
-    const tax = EWASTE_TAXONOMY.find((t) => t.categoryKey === key);
-    if (tax) {
-      setItemWeight(tax.avgWeightKg);
-      setItemAge(tax.defaultAgeYears);
-      setItemHazards(tax.potentialHazards);
+  // When group changes, auto-select first item type in that group
+  const handleGroupSelect = (groupId: string) => {
+    setSelectedGroup(groupId);
+    const grp = CITIZEN_CATEGORY_GROUPS.find((g) => g.id === groupId);
+    if (grp && grp.keys.length > 0) {
+      setSelectedTaxKey(grp.keys[0]);
     }
   };
 
-  // Handle Photo selection & AI classification
+  // Photo analysis handler (Friendly AI assistance)
   const handlePhotoSelect = async (e: ChangeEvent<HTMLInputElement>) => {
-    setAnalysisError(null);
+    setAssistantNotice(null);
+    setAiSuggestion(null);
     if (!e.target.files || !e.target.files[0]) return;
 
     const file = e.target.files[0];
     if (file.size > 8 * 1024 * 1024) {
-      setAnalysisError("File size exceeds 8MB limit.");
+      setAssistantNotice("Please choose an image under 8MB.");
       return;
     }
 
@@ -147,7 +211,6 @@ export default function CitizenRequestPage() {
     setIsAnalyzing(true);
 
     try {
-      // 1. Convert to base64
       const base64Promise = new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.readAsDataURL(file);
@@ -156,7 +219,6 @@ export default function CitizenRequestPage() {
       });
       const base64Data = await base64Promise;
 
-      // 2. Call /api/analyze-image
       const res = await fetch("/api/analyze-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -168,33 +230,43 @@ export default function CitizenRequestPage() {
 
       const responseJson = await res.json();
 
-      if (responseJson.not_electronic || (!responseJson.success && responseJson.not_electronic)) {
-        setAnalysisError(
-          responseJson.message ||
-            "RE:LOOP only accepts electronic items. This photo was classified as non-electronic. Please choose an electronic device."
+      if (responseJson.not_electronic) {
+        setAssistantNotice(
+          "We couldn't detect an electronic item in this photo. Please select your item category below."
         );
         setIsAnalyzing(false);
         return;
       }
 
-      if (responseJson.data) {
-        const d = responseJson.data;
-        if (d.item_type) {
-          const tax = mapItemToTaxonomy(d.item_type);
-          setCategoryKey(tax.categoryKey);
-          setItemWeight(tax.avgWeightKg);
-          setItemAge(d.estimated_age_years || tax.defaultAgeYears);
-          setItemHazards(tax.potentialHazards);
+      if (responseJson.data && responseJson.data.item_type) {
+        const detected = responseJson.data;
+        const tax = mapItemToTaxonomy(detected.item_type);
+
+        // Find parent group
+        const matchedGroup = CITIZEN_CATEGORY_GROUPS.find((g) =>
+          g.keys.includes(tax.categoryKey)
+        );
+
+        setAiSuggestion({
+          deviceTitle: tax.label,
+          brand: detected.brand || undefined,
+          condition: detected.condition || undefined,
+          taxKey: tax.categoryKey,
+        });
+
+        if (matchedGroup) {
+          setSelectedGroup(matchedGroup.id);
         }
-        if (d.brand) {
-          setItemBrand(d.brand);
-        }
-        if (d.condition) {
-          setItemCondition(d.condition);
-        }
+        setSelectedTaxKey(tax.categoryKey);
+        if (detected.brand) setItemBrand(detected.brand);
+        if (detected.condition) setItemCondition(detected.condition);
+      } else {
+        setAssistantNotice(
+          "We couldn't automatically identify the item. Please select the category manually."
+        );
       }
 
-      // Try background upload to Supabase storage
+      // Upload in background to Supabase storage if available
       try {
         const ext = file.name.split(".").pop() || "jpg";
         const filename = `requests/${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${ext}`;
@@ -209,46 +281,51 @@ export default function CitizenRequestPage() {
             setUploadedImageUrl(pub.publicUrl);
           }
         }
-      } catch (uploadNotice) {
-        console.warn("Storage upload notice:", uploadNotice);
+      } catch {
+        // Safe silent fallback
       }
-    } catch (err: unknown) {
-      console.warn("AI analysis error:", err);
-      setAnalysisError("AI analysis encountered an error. You can still set the item details manually.");
+    } catch {
+      setAssistantNotice(
+        "Could not analyze image right now. You can pick your item category directly below."
+      );
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  // Commit item to manifest
+  // Add configured item to manifest
   const handleSaveItem = () => {
-    const tax = EWASTE_TAXONOMY.find((t) => t.categoryKey === categoryKey) || {
-      categoryKey: "other_electronics",
-      label: "Electronics Item",
-      group: "IT & Computing",
-      avgWeightKg: 2.0,
-      potentialHazards: [],
-      defaultAgeYears: 3,
-    };
+    const tax: EwasteCategoryInfo =
+      EWASTE_TAXONOMY.find((t) => t.categoryKey === selectedTaxKey) || {
+        categoryKey: "other_electronics",
+        label: "Electronic Device",
+        group: "Accessories & Peripherals",
+        avgWeightKg: 1.5,
+        potentialHazards: [],
+        defaultAgeYears: 3,
+      };
 
     const impact = calculateImpact(
       tax.label,
       itemCondition,
-      itemAge,
-      itemWeight
+      tax.defaultAgeYears,
+      tax.avgWeightKg
     );
+
+    const calculatedWeight = Math.round(tax.avgWeightKg * itemQuantity * 10) / 10;
 
     const newItem: ManifestItem = {
       id: "item-" + Date.now() + "-" + Math.random().toString(36).substring(2, 6),
       item_type: tax.label,
-      brand: itemBrand.trim() || "Unbranded / Unknown",
+      category_key: tax.categoryKey,
+      brand: itemBrand.trim() || "Standard",
       condition: itemCondition,
-      estimated_age_years: itemAge,
-      weight_kg: Number(itemWeight) || tax.avgWeightKg,
-      quantity: Number(itemQuantity) || 1,
-      hazards: itemHazards,
-      co2e_saved_est: Math.round(impact.co2eSavedKg * 10) / 10,
-      waste_avoided_kg: Math.round((Number(itemWeight) || tax.avgWeightKg) * 10) / 10,
+      estimated_age_years: tax.defaultAgeYears,
+      weight_kg: calculatedWeight,
+      quantity: itemQuantity,
+      hazards: tax.potentialHazards,
+      co2e_saved_est: Math.round(impact.co2eSavedKg * itemQuantity * 10) / 10,
+      waste_avoided_kg: calculatedWeight,
       image_url: uploadedImageUrl || previewUrl || undefined,
     };
 
@@ -260,18 +337,19 @@ export default function CitizenRequestPage() {
     setItemBrand("");
     setItemQuantity(1);
     setUploadedImageUrl(undefined);
-    setAnalysisError(null);
+    setAiSuggestion(null);
+    setAssistantNotice(null);
   };
 
   const handleRemoveItem = (id: string) => {
     setItems((prev) => prev.filter((i) => i.id !== id));
   };
 
-  // GPS Location detection & zone auto-resolution
+  // GPS Location detection with human-friendly locality display
   const handleDetectGPS = () => {
-    setLocationError(null);
+    setLocationNotice(null);
     if (typeof window === "undefined" || !navigator.geolocation) {
-      setLocationError("Geolocation is not supported by your browser.");
+      setLocationNotice("Location detection is not supported on this browser. Please enter your address below.");
       return;
     }
 
@@ -285,37 +363,64 @@ export default function CitizenRequestPage() {
 
         const res = resolveZoneFromList(lat, lng, zoneList);
         setSelectedZoneId(res.zone.id);
-        setResolvedDistanceKm(res.distanceKm);
         setIsDetectingLocation(false);
+        setLocationNotice(`Location set: ${res.zone.name}, Hyderabad`);
       },
-      (err) => {
+      () => {
         setIsDetectingLocation(false);
-        setLocationError("Unable to acquire GPS location. Please select your municipal zone manually below.");
-        console.warn("GPS error:", err);
+        setLocationNotice(
+          "Location access was not granted. Please enter your street address and neighborhood manually."
+        );
       },
       { timeout: 10000, enableHighAccuracy: true }
     );
   };
 
+  // Compute selected zone human name
+  const currentZone = zoneList.find((z) => z.id === selectedZoneId) || zoneList[0];
+  const humanArea = currentZone ? `${currentZone.name}, Hyderabad` : "Hyderabad Metro Area";
+
+  // Total weight
+  const totalWeight = Math.round(items.reduce((acc, i) => acc + i.weight_kg, 0) * 10) / 10;
+  const totalCount = items.reduce((acc, i) => acc + i.quantity, 0);
+
+  // Stepper validation
+  const handleProceedToLocation = () => {
+    if (items.length === 0) {
+      setFormError("Please add at least one item to collect before proceeding.");
+      return;
+    }
+    setFormError(null);
+    setCurrentStep(2);
+  };
+
+  const handleProceedToSchedule = () => {
+    if (!address.trim() || address.trim().length < 5) {
+      setFormError("Please provide your street address or building details (minimum 5 characters).");
+      return;
+    }
+    setFormError(null);
+    setCurrentStep(3);
+  };
+
+  const handleProceedToReview = () => {
+    if (!citizenPhone.trim() || citizenPhone.trim().length < 7) {
+      setFormError("Please provide a valid contact mobile number.");
+      return;
+    }
+    const today = new Date().toISOString().split("T")[0];
+    if (!pickupDate || pickupDate < today) {
+      setFormError("Please choose a future pickup date.");
+      return;
+    }
+    setFormError(null);
+    setCurrentStep(4);
+  };
+
   // Final request submission
   const handleSubmitRequest = async () => {
-    if (items.length === 0) {
-      setSubmissionError("Please add at least one electronic item before scheduling.");
-      return;
-    }
-
-    if (!citizenPhone.trim() || citizenPhone.trim().length < 7) {
-      setSubmissionError("Please provide a valid contact phone number.");
-      return;
-    }
-
-    if (!address.trim() || address.trim().length < 5) {
-      setSubmissionError("Please provide a full pickup address (minimum 5 characters).");
-      return;
-    }
-
     setIsSubmitting(true);
-    setSubmissionError(null);
+    setFormError(null);
 
     try {
       const payloadItems = items.map((i) => ({
@@ -348,10 +453,10 @@ export default function CitizenRequestPage() {
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        throw new Error(data.error || "Failed to submit request.");
+        throw new Error(data.error || "We could not schedule your pickup. Please check your information and try again.");
       }
 
-      // Generate QR Code data URL for client receipt
+      // Generate QR Code data URL for client pickup pass
       const qrDataUrl = await QRCode.toDataURL(data.qrToken, {
         width: 320,
         margin: 2,
@@ -367,179 +472,150 @@ export default function CitizenRequestPage() {
         qrToken: data.qrToken,
         pickupDate: data.pickupDate,
         pickupSlot: data.pickupSlot,
-        zoneName: data.zoneName || "Assigned Municipal Zone",
-        itemsCount: data.itemsCount,
-        estimatedWeightKg: data.estimatedWeightKg,
-        trackingUrl: data.trackingUrl,
+        zoneName: humanArea,
+        itemsCount: totalCount,
+        estimatedWeightKg: totalWeight,
+        trackingUrl: `/track/${data.qrToken}`,
       });
 
       setCurrentStep(5);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Submission failed.";
-      setSubmissionError(msg);
+      const msg = err instanceof Error ? err.message : "Submission failed. Please try again.";
+      setFormError(msg);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Cumulative impact
-  const totalWeight = items.reduce((sum, i) => sum + i.weight_kg * i.quantity, 0);
-  const totalCO2e = items.reduce((sum, i) => sum + i.co2e_saved_est * i.quantity, 0);
-  const totalUnits = items.reduce((sum, i) => sum + i.quantity, 0);
-  const selectedZone = zoneList.find((z) => z.id === selectedZoneId) || zoneList[0];
+  const handleCopyToken = () => {
+    if (confirmedData?.qrToken) {
+      navigator.clipboard.writeText(confirmedData.qrToken);
+      setCopiedToken(true);
+      setTimeout(() => setCopiedToken(false), 2000);
+    }
+  };
 
   return (
-    <div className="space-y-8">
-      {/* Page Title & Breadcrumb */}
-      <div>
-        <div className="flex items-center gap-2 text-xs font-mono text-[#6b746e] uppercase tracking-wider mb-1">
-          <Link href="/" className="hover:text-[#2e7d57]">Platform</Link>
-          <span>/</span>
-          <span className="text-[#151817] font-semibold">Municipal Intake</span>
+    <div className="mx-auto max-w-3xl py-4 sm:py-8 space-y-8">
+      {/* Header & Title */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <Link
+            href="/"
+            className="text-xs font-semibold text-[#6b746e] hover:text-[#151817] inline-flex items-center gap-1"
+          >
+            &larr; Return to Home
+          </Link>
+          <span className="text-[#d8ddd7]">·</span>
+          <span className="text-[11px] font-mono uppercase tracking-widest text-[#2e7d57] font-bold">
+            Doorstep Collection Booking
+          </span>
         </div>
-        <h1 className="text-2xl sm:text-3xl font-display font-bold text-[#151817] tracking-tight">
-          Citizen E-Waste Pickup Request
+        <h1 className="text-2xl sm:text-3xl font-display font-bold text-[#151817]">
+          Schedule an E-Waste Pickup
         </h1>
-        <p className="mt-1 text-sm text-[#4b554d] max-w-2xl">
-          Schedule municipal doorstep collection for end-of-life electronics. Certified chain of custody from household handover to accredited recycling facilities.
+        <p className="text-xs sm:text-sm text-[#6b746e] leading-relaxed">
+          Book a free doorstep pickup for unwanted electronics. Every pickup receives a unique tracking pass and doorstep digital scale verification.
         </p>
       </div>
 
-      {/* Stepper Progress Bar */}
-      <div className="grid grid-cols-4 gap-2 border-b border-[#d8ddd7] pb-4">
-        {[
-          { num: 1, label: "Item Manifest" },
-          { num: 2, label: "Pickup Location" },
-          { num: 3, label: "Date & Contact" },
-          { num: 4, label: "Review & Submit" },
-        ].map((s) => {
-          const isActive = currentStep === s.num;
-          const isDone = currentStep > s.num;
-          return (
-            <div
-              key={s.num}
-              className={`flex items-center gap-2 text-xs font-mono ${
-                isActive
-                  ? "text-[#2e7d57] font-bold"
-                  : isDone
-                  ? "text-[#151817]"
-                  : "text-[#9ca39e]"
-              }`}
-            >
-              <span
-                className={`flex h-5 w-5 items-center justify-center rounded-sm text-[11px] font-bold ${
-                  isActive
-                    ? "bg-[#2e7d57] text-white"
-                    : isDone
-                    ? "bg-[#151817] text-white"
-                    : "bg-[#e9ede7] text-[#6b746e]"
-                }`}
-              >
-                {isDone ? "✓" : s.num}
-              </span>
-              <span className="hidden sm:inline">{s.label}</span>
-            </div>
-          );
-        })}
-      </div>
+      {/* Progress Indicator (Steps 1 to 4) */}
+      {currentStep < 5 && (
+        <nav aria-label="Booking Progress" className="border-b border-[#d8ddd7] pb-4">
+          <ol className="flex items-center justify-between text-xs font-semibold text-[#6b746e]">
+            {[
+              { num: 1, label: "Items" },
+              { num: 2, label: "Location" },
+              { num: 3, label: "Schedule" },
+              { num: 4, label: "Review" },
+            ].map((st) => {
+              const isActive = currentStep === st.num;
+              const isPast = currentStep > st.num;
+              return (
+                <li key={st.num} className="flex items-center gap-2">
+                  <span
+                    className={`flex h-6 w-6 items-center justify-center rounded-sm font-mono text-xs ${
+                      isActive
+                        ? "bg-[#2e7d57] text-white font-bold"
+                        : isPast
+                        ? "bg-[#e6f2e8] text-[#173d2c] font-bold border border-[#2e7d57]"
+                        : "bg-[#e9ede7] text-[#6b746e]"
+                    }`}
+                  >
+                    {isPast ? "✓" : st.num}
+                  </span>
+                  <span className={isActive ? "text-[#151817] font-bold" : isPast ? "text-[#173d2c]" : ""}>
+                    {st.label}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        </nav>
+      )}
 
-      {/* STEP 1: ITEM INTAKE & MANIFEST */}
+      {/* Error banner */}
+      {formError && (
+        <div className="rounded-[3px] border border-[#f5c6cb] bg-[#fdf2f2] p-3.5 text-xs text-[#721c24] flex items-center justify-between">
+          <span>{formError}</span>
+          <button
+            onClick={() => setFormError(null)}
+            className="text-sm font-bold text-[#721c24] hover:opacity-75"
+          >
+            &times;
+          </button>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* STEP 1: ITEMS ("WHAT") */}
+      {/* ========================================================= */}
       {currentStep === 1 && (
         <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-[#151817]">Electronic Items Manifest</h2>
-              <p className="text-xs text-[#6b746e]">
-                Add all devices, chargers, or appliances intended for handover.
-              </p>
-            </div>
-            {!isAddingItem && (
-              <button
-                type="button"
-                onClick={() => {
-                  handleCategoryChange("smartphone");
-                  setIsAddingItem(true);
-                }}
-                className="inline-flex items-center gap-1.5 rounded-sm bg-[#2e7d57] px-3.5 py-2 text-xs font-semibold text-white hover:bg-[#246644] transition-colors"
-              >
-                + Add Item
-              </button>
-            )}
+          <div className="space-y-1">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-[#2e7d57] font-bold block">
+              Step 1 of 4
+            </span>
+            <h2 className="text-xl font-display font-bold text-[#151817]">
+              What would you like us to collect?
+            </h2>
+            <p className="text-xs text-[#6b746e]">
+              Add one or more electronic items. You can snap an optional photo for assistance or pick from standard categories.
+            </p>
           </div>
 
-          {/* Item List Table or Empty State */}
-          {items.length === 0 && !isAddingItem && (
-            <div className="rounded-sm border border-dashed border-[#c5ccc3] bg-[#f9faf8] p-8 text-center">
-              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-sm bg-[#e9ede7] text-sm text-[#2e7d57] font-mono">
-                [+]
-              </div>
-              <h3 className="mt-3 text-sm font-semibold text-[#151817]">No items added yet</h3>
-              <p className="mt-1 text-xs text-[#6b746e] max-w-sm mx-auto">
-                Snap a photo with AI device classification or pick from the standard e-waste taxonomy.
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  handleCategoryChange("smartphone");
-                  setIsAddingItem(true);
-                }}
-                className="mt-4 inline-flex items-center rounded-sm bg-[#2e7d57] px-4 py-2 text-xs font-semibold text-white hover:bg-[#246644]"
-              >
-                + Add First Electronic Item
-              </button>
-            </div>
-          )}
-
-          {/* Manifest Table */}
-          {items.length > 0 && (
-            <div className="overflow-hidden rounded-sm border border-[#d8ddd7] bg-white">
-              <div className="p-3 bg-[#f4f5f1] border-b border-[#d8ddd7] flex justify-between items-center text-xs font-mono">
-                <span className="font-semibold text-[#151817]">
-                  Items Count: {totalUnits} {totalUnits === 1 ? "unit" : "units"}
-                </span>
-                <span className="text-[#2e7d57] font-semibold">
-                  Est. Total Weight: {Math.round(totalWeight * 10) / 10} kg
-                </span>
-              </div>
-              <div className="divide-y divide-[#e9ede7]">
-                {items.map((it) => (
-                  <div key={it.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          {/* Added items list */}
+          {items.length > 0 ? (
+            <div className="space-y-3">
+              <span className="text-xs font-semibold text-[#151817] block">
+                Items to Collect ({items.length}) · Est. Weight: {totalWeight} kg
+              </span>
+              <div className="divide-y divide-[#d8ddd7] rounded-[3px] border border-[#d8ddd7] bg-white overflow-hidden">
+                {items.map((item) => (
+                  <div key={item.id} className="p-4 flex items-center justify-between gap-3">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-[#151817]">{it.item_type}</span>
-                        {it.quantity > 1 && (
-                          <span className="rounded-sm bg-[#e9ede7] px-1.5 py-0.5 text-[10px] font-mono text-[#151817]">
-                            ×{it.quantity}
-                          </span>
-                        )}
-                        <span className="rounded-sm border border-[#d8ddd7] px-2 py-0.5 text-[10px] uppercase font-mono text-[#6b746e]">
-                          {it.condition.replace("_", " ")}
+                        <span className="text-sm font-bold text-[#151817]">
+                          {item.item_type}
+                        </span>
+                        <Badge variant="neutral" size="sm">
+                          Qty: {item.quantity}
+                        </Badge>
+                      </div>
+                      <div className="text-[11px] text-[#6b746e] flex flex-wrap items-center gap-3">
+                        <span>Brand: {item.brand}</span>
+                        <span>·</span>
+                        <span className="capitalize">Condition: {item.condition}</span>
+                        <span>·</span>
+                        <span className="font-mono font-semibold text-[#151817]">
+                          ~{item.weight_kg} kg
                         </span>
                       </div>
-                      <div className="flex flex-wrap gap-2 text-xs text-[#6b746e]">
-                        {it.brand && <span>Brand: {it.brand}</span>}
-                        <span>·</span>
-                        <span>Est. Weight: {it.weight_kg} kg</span>
-                        <span>·</span>
-                        <span className="text-[#2e7d57] font-medium">CO₂e Avoided: {it.co2e_saved_est} kg</span>
-                      </div>
-                      {it.hazards.length > 0 && (
-                        <div className="flex flex-wrap gap-1 pt-1">
-                          {it.hazards.map((h, i) => (
-                            <span
-                              key={i}
-                              className="rounded-sm bg-[#fff8e6] border border-[#f5dfa8] px-1.5 py-0.2 text-[10px] font-mono text-[#8a5d00]"
-                            >
-                              ⚠ {h}
-                            </span>
-                          ))}
-                        </div>
-                      )}
                     </div>
                     <button
                       type="button"
-                      onClick={() => handleRemoveItem(it.id)}
-                      className="self-start sm:self-center text-xs font-mono text-[#b33a3a] hover:underline"
+                      onClick={() => handleRemoveItem(item.id)}
+                      className="text-xs text-[#991b1b] hover:underline px-2 py-1"
                     >
                       Remove
                     </button>
@@ -547,483 +623,617 @@ export default function CitizenRequestPage() {
                 ))}
               </div>
             </div>
+          ) : (
+            <div className="rounded-[3px] border border-dashed border-[#d8ddd7] bg-white p-8 text-center space-y-2">
+              <p className="text-sm font-semibold text-[#151817]">No items added yet</p>
+              <p className="text-xs text-[#6b746e] max-w-sm mx-auto">
+                Select your electronic device categories below to add them to your collection manifest.
+              </p>
+            </div>
           )}
 
-          {/* ITEM ADDING MODAL / FORM */}
-          {isAddingItem && (
-            <div className="rounded-sm border border-[#2e7d57] bg-white p-5 space-y-5 shadow-sm">
-              <div className="flex items-center justify-between border-b border-[#e9ede7] pb-3">
-                <h3 className="text-sm font-bold text-[#151817]">Add Item to Collection Manifest</h3>
-                <button
-                  type="button"
-                  onClick={() => setIsAddingItem(false)}
-                  className="text-xs text-[#6b746e] hover:text-[#151817]"
-                >
-                  ✕ Cancel
-                </button>
-              </div>
+          {/* Add item interface */}
+          {!isAddingItem ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsAddingItem(true)}
+              className="w-full py-3 text-xs font-bold"
+            >
+              + Add an Item
+            </Button>
+          ) : (
+            <Card className="border-[#2e7d57] shadow-sm">
+              <CardHeader className="pb-3 border-b border-[#d8ddd7]">
+                <div className="flex items-center justify-between">
+                  <CardTitle>Add Electronic Item</CardTitle>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAddingItem(false);
+                      setAiSuggestion(null);
+                      setPreviewUrl(null);
+                    }}
+                    className="text-xs text-[#6b746e] hover:text-[#151817]"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                <CardDescription>
+                  Upload a photo for quick identification assistance, or choose a category manually.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6 pt-4">
+                {/* Photo upload assistance */}
+                <div className="space-y-2 rounded-[3px] border border-[#d8ddd7] bg-[#f9faf8] p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-[#151817]">
+                      Photo Assistance (Optional)
+                    </span>
+                    {previewUrl && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPreviewUrl(null);
+                          setAiSuggestion(null);
+                        }}
+                        className="text-[11px] text-[#6b746e] hover:underline"
+                      >
+                        Clear photo
+                      </button>
+                    )}
+                  </div>
 
-              {/* Photo Upload & AI Gate */}
-              <div className="space-y-2">
-                <label className="block text-xs font-semibold text-[#151817]">
-                  Photograph or Visual Inspection (Optional)
-                </label>
-                <div className="flex flex-col sm:flex-row gap-3 items-start">
                   <input
-                    type="file"
                     ref={fileInputRef}
+                    type="file"
                     accept="image/*"
                     onChange={handlePhotoSelect}
                     className="hidden"
                   />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isAnalyzing}
-                    className="inline-flex items-center justify-center rounded-sm border border-[#d8ddd7] bg-[#f4f5f1] px-4 py-2 text-xs font-medium text-[#151817] hover:bg-[#e9ede7] transition-colors disabled:opacity-50"
-                  >
-                    {isAnalyzing ? "Analyzing Photo..." : "📷 Upload / Take Photo for AI Detection"}
-                  </button>
-                  {previewUrl && (
-                    <div className="flex items-center gap-2">
+
+                  {!previewUrl ? (
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full rounded-[3px] border border-dashed border-[#d8ddd7] bg-white py-3 text-xs font-medium text-[#2e7d57] hover:bg-[#f4f5f1] transition-colors flex items-center justify-center gap-2"
+                    >
+                      <span>Take or upload a photo of your device</span>
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-4">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={previewUrl}
                         alt="Item preview"
-                        className="h-10 w-10 object-cover rounded-sm border border-[#d8ddd7]"
+                        className="h-16 w-16 object-cover rounded-[3px] border border-[#d8ddd7]"
                       />
-                      <span className="text-[11px] text-[#6b746e]">Image Attached</span>
+                      <div className="space-y-1">
+                        {isAnalyzing ? (
+                          <div className="flex items-center gap-2 text-xs text-[#2e7d57] font-medium">
+                            <span className="h-3 w-3 animate-spin rounded-full border-2 border-[#2e7d57] border-t-transparent" />
+                            <span>Identifying device...</span>
+                          </div>
+                        ) : aiSuggestion ? (
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold text-[#151817]">
+                              We think this is a {aiSuggestion.deviceTitle}. Is that right?
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="success" size="sm">
+                                Detected: {aiSuggestion.deviceTitle}
+                              </Badge>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-[#6b746e]">Photo attached.</span>
+                        )}
+                      </div>
                     </div>
+                  )}
+
+                  {assistantNotice && (
+                    <p className="text-[11px] text-[#6b746e] pt-1">{assistantNotice}</p>
                   )}
                 </div>
 
-                {/* Electronics Gate Rejection or Notice */}
-                {analysisError && (
-                  <div className="rounded-sm border border-[#f5c6cb] bg-[#fdf2f2] p-3 text-xs text-[#721c24]">
-                    <strong>Notice:</strong> {analysisError}
-                  </div>
-                )}
-              </div>
-
-              {/* Manual/Refined Fields */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-[#151817] mb-1">
-                    Device Category *
+                {/* Step A: Category Selection */}
+                <div className="space-y-3">
+                  <label className="block text-xs font-semibold text-[#151817]">
+                    1. Select Item Category
                   </label>
-                  <select
-                    value={categoryKey}
-                    onChange={(e) => handleCategoryChange(e.target.value)}
-                    className="w-full rounded-sm border border-[#d8ddd7] bg-[#fdfdfc] p-2 text-xs text-[#151817] focus:border-[#2e7d57] focus:outline-none"
-                  >
-                    {EWASTE_TAXONOMY.map((tax) => (
-                      <option key={tax.categoryKey} value={tax.categoryKey}>
-                        {tax.label} ({tax.group})
-                      </option>
-                    ))}
-                  </select>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {CITIZEN_CATEGORY_GROUPS.map((grp) => {
+                      const isSelected = selectedGroup === grp.id;
+                      return (
+                        <button
+                          key={grp.id}
+                          type="button"
+                          onClick={() => handleGroupSelect(grp.id)}
+                          className={`p-3 text-left rounded-[3px] border text-xs transition-colors ${
+                            isSelected
+                              ? "border-[#2e7d57] bg-[#edf5f0] text-[#173d2c] font-semibold"
+                              : "border-[#d8ddd7] bg-white text-[#151817] hover:bg-[#f4f5f1]"
+                          }`}
+                        >
+                          <span className="block font-bold leading-tight">{grp.label}</span>
+                          <span className="block text-[10px] text-[#6b746e] mt-1 leading-tight line-clamp-2">
+                            {grp.description}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-[#151817] mb-1">
-                    Brand / Manufacturer
-                  </label>
-                  <input
-                    type="text"
-                    value={itemBrand}
-                    onChange={(e) => setItemBrand(e.target.value)}
-                    placeholder="e.g. Dell, Samsung, Apple, Sony"
-                    className="w-full rounded-sm border border-[#d8ddd7] bg-[#fdfdfc] p-2 text-xs text-[#151817] focus:border-[#2e7d57] focus:outline-none"
-                  />
-                </div>
+                {/* Step B: Specific Item Type in Group */}
+                {(() => {
+                  const currentGrp = CITIZEN_CATEGORY_GROUPS.find((g) => g.id === selectedGroup);
+                  const availableTaxes = EWASTE_TAXONOMY.filter((t) =>
+                    currentGrp?.keys.includes(t.categoryKey)
+                  );
 
-                <div>
-                  <label className="block text-xs font-semibold text-[#151817] mb-1">
-                    Physical Condition *
-                  </label>
-                  <select
-                    value={itemCondition}
-                    onChange={(e) => setItemCondition(e.target.value)}
-                    className="w-full rounded-sm border border-[#d8ddd7] bg-[#fdfdfc] p-2 text-xs text-[#151817] focus:border-[#2e7d57] focus:outline-none"
-                  >
-                    <option value="functional">Functional / Powers On</option>
-                    <option value="cosmetic_damage">Minor Cosmetic Scratches / Wear</option>
-                    <option value="partially_working">Partially Working / Faulty Screen or Battery</option>
-                    <option value="severely_damaged">Severely Damaged / Scrap / Non-Functional</option>
-                  </select>
-                </div>
+                  return (
+                    <div className="space-y-3">
+                      <label className="block text-xs font-semibold text-[#151817]">
+                        2. Specific Device Type
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        {availableTaxes.map((tax) => {
+                          const isPicked = selectedTaxKey === tax.categoryKey;
+                          return (
+                            <button
+                              key={tax.categoryKey}
+                              type="button"
+                              onClick={() => setSelectedTaxKey(tax.categoryKey)}
+                              className={`px-3 py-1.5 rounded-[3px] border text-xs font-medium transition-colors ${
+                                isPicked
+                                  ? "border-[#2e7d57] bg-[#2e7d57] text-white"
+                                  : "border-[#d8ddd7] bg-white text-[#151817] hover:bg-[#f4f5f1]"
+                              }`}
+                            >
+                              {tax.label} (~{tax.avgWeightKg} kg)
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
 
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <label className="block text-xs font-semibold text-[#151817] mb-1">
-                      Age (yrs)
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="30"
-                      value={itemAge}
-                      onChange={(e) => setItemAge(Math.max(0, parseInt(e.target.value) || 0))}
-                      className="w-full rounded-sm border border-[#d8ddd7] bg-[#fdfdfc] p-2 text-xs text-[#151817] focus:border-[#2e7d57] focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-[#151817] mb-1">
-                      Weight (kg)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0.1"
-                      value={itemWeight}
-                      onChange={(e) => setItemWeight(Math.max(0.1, parseFloat(e.target.value) || 0.1))}
-                      className="w-full rounded-sm border border-[#d8ddd7] bg-[#fdfdfc] p-2 text-xs text-[#151817] focus:border-[#2e7d57] focus:outline-none"
-                    />
-                  </div>
+                {/* Step C: Quantity, Brand & Condition */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs font-semibold text-[#151817] mb-1">
                       Quantity
                     </label>
                     <input
                       type="number"
-                      min="1"
-                      max="20"
+                      min={1}
+                      max={50}
                       value={itemQuantity}
                       onChange={(e) => setItemQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                      className="w-full rounded-sm border border-[#d8ddd7] bg-[#fdfdfc] p-2 text-xs text-[#151817] focus:border-[#2e7d57] focus:outline-none"
+                      className="w-full rounded-[3px] border border-[#d8ddd7] bg-white px-3 py-2 text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-[#151817] mb-1">
+                      Brand / Model (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Dell, Apple, Sony"
+                      value={itemBrand}
+                      onChange={(e) => setItemBrand(e.target.value)}
+                      className="w-full rounded-[3px] border border-[#d8ddd7] bg-white px-3 py-2 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-[#151817] mb-1">
+                      Condition
+                    </label>
+                    <select
+                      value={itemCondition}
+                      onChange={(e) => setItemCondition(e.target.value)}
+                      className="w-full rounded-[3px] border border-[#d8ddd7] bg-white px-3 py-2 text-xs"
+                    >
+                      <option value="working">Working / Powers On</option>
+                      <option value="repairable">Damaged / Needs Repair</option>
+                      <option value="scrap">End of Life / For Scrap</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="pt-2 flex items-center justify-end gap-2 border-t border-[#d8ddd7]">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => {
+                      setIsAddingItem(false);
+                      setAiSuggestion(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="button" variant="primary" onClick={handleSaveItem}>
+                    Add to Pickup List &rarr;
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Stepper Navigation */}
+          <div className="pt-4 flex items-center justify-between border-t border-[#d8ddd7]">
+            <span className="text-xs text-[#6b746e]">
+              {items.length === 0 ? "Add at least 1 item to proceed" : `${items.length} item(s) configured`}
+            </span>
+            <Button
+              type="button"
+              variant="primary"
+              onClick={handleProceedToLocation}
+              disabled={items.length === 0}
+            >
+              Continue to Location &rarr;
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* STEP 2: LOCATION ("WHERE") */}
+      {/* ========================================================= */}
+      {currentStep === 2 && (
+        <div className="space-y-6">
+          <div className="space-y-1">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-[#2e7d57] font-bold block">
+              Step 2 of 4
+            </span>
+            <h2 className="text-xl font-display font-bold text-[#151817]">
+              Where should we collect it?
+            </h2>
+            <p className="text-xs text-[#6b746e]">
+              Provide your street address so our collection vehicle can arrive at your doorstep.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setLocationMode("gps");
+                handleDetectGPS();
+              }}
+              className={`p-4 rounded-[3px] border text-left transition-colors flex items-start gap-3 ${
+                locationMode === "gps"
+                  ? "border-[#2e7d57] bg-[#edf5f0]"
+                  : "border-[#d8ddd7] bg-white hover:bg-[#f4f5f1]"
+              }`}
+            >
+              <span className="text-lg">📍</span>
+              <div className="space-y-1">
+                <span className="text-xs font-bold text-[#151817] block">
+                  Use my current location
+                </span>
+                <span className="text-[11px] text-[#6b746e] block">
+                  Automatically match your neighborhood zone via GPS
+                </span>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setLocationMode("manual")}
+              className={`p-4 rounded-[3px] border text-left transition-colors flex items-start gap-3 ${
+                locationMode === "manual"
+                  ? "border-[#2e7d57] bg-[#edf5f0]"
+                  : "border-[#d8ddd7] bg-white hover:bg-[#f4f5f1]"
+              }`}
+            >
+              <span className="text-lg">✍️</span>
+              <div className="space-y-1">
+                <span className="text-xs font-bold text-[#151817] block">
+                  Enter address manually
+                </span>
+                <span className="text-[11px] text-[#6b746e] block">
+                  Type your street, building, or landmark directly
+                </span>
+              </div>
+            </button>
+          </div>
+
+          {isDetectingLocation && (
+            <div className="rounded-[3px] border border-[#d8ddd7] bg-[#f9faf8] p-3 text-xs text-[#2e7d57] flex items-center gap-2">
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-[#2e7d57] border-t-transparent" />
+              <span>Acquiring location coordinates...</span>
+            </div>
+          )}
+
+          {locationNotice && (
+            <div className="rounded-[3px] border border-[#bcdbc8] bg-[#edf5f0] p-3 text-xs text-[#1e583c]">
+              {locationNotice}
+            </div>
+          )}
+
+          {/* Address input */}
+          <Card>
+            <CardContent className="p-5 space-y-4">
+              <div>
+                <label htmlFor="address-input" className="block text-xs font-semibold text-[#151817] mb-1">
+                  Street Address &amp; Door / Flat Number *
+                </label>
+                <textarea
+                  id="address-input"
+                  rows={2}
+                  required
+                  placeholder="e.g. Flat 402, Green Residency, Road No. 12, Banjara Hills"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  className="w-full rounded-[3px] border border-[#d8ddd7] bg-white p-2.5 text-xs text-[#151817] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2e7d57]"
+                />
+              </div>
+
+              {/* Human-readable pickup area */}
+              <div className="rounded-[3px] bg-[#f4f5f1] border border-[#d8ddd7] p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-[#6b746e]">
+                    Pickup Area:
+                  </span>
+                  <span className="text-xs font-bold text-[#151817]">
+                    {humanArea}
+                  </span>
+                </div>
+                <div>
+                  <label htmlFor="zone-select" className="block text-[11px] text-[#6b746e] mb-1">
+                    Select neighborhood zone manually if different:
+                  </label>
+                  <select
+                    id="zone-select"
+                    value={selectedZoneId}
+                    onChange={(e) => setSelectedZoneId(e.target.value)}
+                    className="w-full rounded-[3px] border border-[#d8ddd7] bg-white p-2 text-xs"
+                  >
+                    {zoneList.map((z) => (
+                      <option key={z.id} value={z.id}>
+                        {z.name}, Hyderabad
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Stepper Navigation */}
+          <div className="pt-4 flex items-center justify-between border-t border-[#d8ddd7]">
+            <Button type="button" variant="outline" onClick={() => setCurrentStep(1)}>
+              &larr; Back to Items
+            </Button>
+            <Button type="button" variant="primary" onClick={handleProceedToSchedule}>
+              Continue to Schedule &rarr;
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* STEP 3: SCHEDULE & CONTACT ("WHEN") */}
+      {/* ========================================================= */}
+      {currentStep === 3 && (
+        <div className="space-y-6">
+          <div className="space-y-1">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-[#2e7d57] font-bold block">
+              Step 3 of 4
+            </span>
+            <h2 className="text-xl font-display font-bold text-[#151817]">
+              When should we collect it?
+            </h2>
+            <p className="text-xs text-[#6b746e]">
+              Choose a collection date and preferred arrival window.
+            </p>
+          </div>
+
+          <Card>
+            <CardContent className="p-5 space-y-5">
+              {/* Date selection */}
+              <div>
+                <label htmlFor="pickup-date" className="block text-xs font-semibold text-[#151817] mb-1.5">
+                  Pickup Date *
+                </label>
+                <input
+                  id="pickup-date"
+                  type="date"
+                  required
+                  min={new Date().toISOString().split("T")[0]}
+                  value={pickupDate}
+                  onChange={(e) => setPickupDate(e.target.value)}
+                  className="rounded-[3px] border border-[#d8ddd7] bg-white px-3 py-2 text-xs font-mono"
+                />
+              </div>
+
+              {/* Time slots */}
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold text-[#151817]">
+                  Time Window *
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {[
+                    { slot: "09:00 - 12:00", title: "Morning", hours: "9:00 AM – 12:00 PM" },
+                    { slot: "12:00 - 15:00", title: "Afternoon", hours: "1:00 PM – 4:00 PM" },
+                    { slot: "15:00 - 18:00", title: "Evening", hours: "4:00 PM – 7:00 PM" },
+                  ].map((s) => {
+                    const isSelected = pickupSlot === s.slot;
+                    return (
+                      <button
+                        key={s.slot}
+                        type="button"
+                        onClick={() => setPickupSlot(s.slot)}
+                        className={`p-3 rounded-[3px] border text-left transition-colors ${
+                          isSelected
+                            ? "border-[#2e7d57] bg-[#edf5f0] text-[#173d2c]"
+                            : "border-[#d8ddd7] bg-white text-[#151817] hover:bg-[#f4f5f1]"
+                        }`}
+                      >
+                        <span className="block font-bold text-xs">{s.title}</span>
+                        <span className="block text-[11px] text-[#6b746e] mt-0.5">{s.hours}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Contact information */}
+              <div className="border-t border-[#d8ddd7] pt-4 space-y-3">
+                <span className="text-xs font-bold text-[#151817] uppercase tracking-wider font-mono block">
+                  Contact Details
+                </span>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="phone-input" className="block text-xs font-semibold text-[#151817] mb-1">
+                      Mobile Number *
+                    </label>
+                    <input
+                      id="phone-input"
+                      type="tel"
+                      required
+                      placeholder="+91 98765 43210"
+                      value={citizenPhone}
+                      onChange={(e) => setCitizenPhone(e.target.value)}
+                      className="w-full rounded-[3px] border border-[#d8ddd7] bg-white px-3 py-2 text-xs font-mono"
+                    />
+                    <span className="text-[10px] text-[#6b746e] mt-1 block">
+                      Used only to coordinate your pickup arrival.
+                    </span>
+                  </div>
+
+                  <div>
+                    <label htmlFor="name-input" className="block text-xs font-semibold text-[#151817] mb-1">
+                      Your Name (Optional)
+                    </label>
+                    <input
+                      id="name-input"
+                      type="text"
+                      placeholder="e.g. Rahul Sharma"
+                      value={citizenName}
+                      onChange={(e) => setCitizenName(e.target.value)}
+                      className="w-full rounded-[3px] border border-[#d8ddd7] bg-white px-3 py-2 text-xs"
                     />
                   </div>
                 </div>
-              </div>
 
-              {/* Hazardous Materials Detection */}
-              {itemHazards.length > 0 && (
-                <div className="rounded-sm bg-[#faf8f2] border border-[#e8dfcf] p-2.5">
-                  <div className="text-[11px] font-semibold text-[#665022] mb-1">
-                    Special Handling / Regulated Hazard Tags:
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {itemHazards.map((h, i) => (
-                      <span
-                        key={i}
-                        className="rounded-sm bg-white border border-[#d1c7b2] px-2 py-0.5 text-[10px] font-mono text-[#544119]"
-                      >
-                        {h}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsAddingItem(false)}
-                  className="rounded-sm border border-[#d8ddd7] px-3.5 py-1.5 text-xs text-[#6b746e] hover:bg-[#f4f5f1]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveItem}
-                  className="rounded-sm bg-[#2e7d57] px-4 py-1.5 text-xs font-semibold text-white hover:bg-[#246644]"
-                >
-                  Confirm &amp; Add to Manifest
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Action buttons */}
-          <div className="flex justify-end pt-4 border-t border-[#d8ddd7]">
-            <button
-              type="button"
-              disabled={items.length === 0}
-              onClick={() => setCurrentStep(2)}
-              className="rounded-sm bg-[#2e7d57] px-6 py-2.5 text-xs font-semibold text-white hover:bg-[#246644] disabled:opacity-40 transition-colors"
-            >
-              Continue to Location Selection →
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* STEP 2: LOCATION & MUNICIPAL ZONE RESOLUTION */}
-      {currentStep === 2 && (
-        <div className="space-y-6">
-          <div>
-            <h2 className="text-lg font-semibold text-[#151817]">Pickup Address &amp; Municipal Zone</h2>
-            <p className="text-xs text-[#6b746e]">
-              Provide doorstep coordinates to assign your pickup to the nearest municipal fleet route.
-            </p>
-          </div>
-
-          <div className="rounded-sm border border-[#d8ddd7] bg-white p-5 space-y-4">
-            {/* GPS Detection Bar */}
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 bg-[#f4f5f1] rounded-sm border border-[#e2e6df]">
-              <div>
-                <div className="text-xs font-semibold text-[#151817]">Browser Geolocation</div>
-                <div className="text-[11px] text-[#6b746e]">
-                  Auto-resolves your municipal cluster using Haversine centroid proximity.
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={handleDetectGPS}
-                disabled={isDetectingLocation}
-                className="inline-flex items-center gap-1.5 rounded-sm bg-white border border-[#2e7d57] px-3 py-1.5 text-xs font-semibold text-[#2e7d57] hover:bg-[#ebf5ef] transition-colors disabled:opacity-50"
-              >
-                {isDetectingLocation ? "Acquiring Coordinates..." : "📍 Use My Current Location"}
-              </button>
-            </div>
-
-            {locationError && (
-              <div className="rounded-sm border border-[#f5c6cb] bg-[#fdf2f2] p-2.5 text-xs text-[#721c24]">
-                {locationError}
-              </div>
-            )}
-
-            {/* Resolved Zone Badge if available */}
-            {userLat && userLng && (
-              <div className="rounded-sm bg-[#edf5f0] border border-[#bcdbc8] p-3 text-xs text-[#1e583c] flex items-center justify-between">
                 <div>
-                  <span className="font-bold">Detected Centroid Proximity: </span>
-                  {selectedZone.name} ({selectedZone.code})
-                  {resolvedDistanceKm !== null && (
-                    <span className="ml-1 text-[11px] font-mono">
-                      · ~{resolvedDistanceKm} km from zone center
-                    </span>
-                  )}
-                </div>
-                <span className="rounded-sm bg-[#2e7d57] text-white px-2 py-0.5 text-[10px] font-mono font-bold">
-                  ACTIVE CLUSTER
-                </span>
-              </div>
-            )}
-
-            {/* Full Street Address */}
-            <div className="space-y-1">
-              <label className="block text-xs font-semibold text-[#151817]">
-                Doorstep Pickup Address *
-              </label>
-              <textarea
-                rows={3}
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                placeholder="Flat / House No., Apartment or Building name, Street, Locality, Landmark, Hyderabad"
-                className="w-full rounded-sm border border-[#d8ddd7] bg-[#fdfdfc] p-2.5 text-xs text-[#151817] focus:border-[#2e7d57] focus:outline-none"
-              />
-              <p className="text-[11px] text-[#6b746e]">
-                Minimum 5 characters required for driver routing navigation.
-              </p>
-            </div>
-
-            {/* Zone Selector */}
-            <div className="space-y-1">
-              <label className="block text-xs font-semibold text-[#151817]">
-                Assigned Municipal Zone *
-              </label>
-              <select
-                value={selectedZoneId}
-                onChange={(e) => {
-                  setSelectedZoneId(e.target.value);
-                  setResolvedDistanceKm(null);
-                }}
-                className="w-full rounded-sm border border-[#d8ddd7] bg-[#fdfdfc] p-2 text-xs text-[#151817] focus:border-[#2e7d57] focus:outline-none"
-              >
-                {zoneList.map((z) => (
-                  <option key={z.id} value={z.id}>
-                    {z.code}: {z.name} (Coverage Radius: {z.radius_km} km)
-                  </option>
-                ))}
-              </select>
-              <p className="text-[11px] text-[#6b746e]">
-                Managed under the Greater Hyderabad Municipal Corporation (GHMC) E-Waste Framework.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex justify-between pt-4 border-t border-[#d8ddd7]">
-            <button
-              type="button"
-              onClick={() => setCurrentStep(1)}
-              className="rounded-sm border border-[#d8ddd7] px-4 py-2 text-xs font-medium text-[#6b746e] hover:bg-[#f4f5f1]"
-            >
-              ← Back to Manifest
-            </button>
-            <button
-              type="button"
-              disabled={address.trim().length < 5}
-              onClick={() => setCurrentStep(3)}
-              className="rounded-sm bg-[#2e7d57] px-6 py-2 text-xs font-semibold text-white hover:bg-[#246644] disabled:opacity-40"
-            >
-              Continue to Scheduling →
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* STEP 3: SCHEDULE & CONTACT */}
-      {currentStep === 3 && (
-        <div className="space-y-6">
-          <div>
-            <h2 className="text-lg font-semibold text-[#151817]">Date &amp; Citizen Contact</h2>
-            <p className="text-xs text-[#6b746e]">
-              Pick your preferred collection time slot and enter phone number for pickup OTP and coordination.
-            </p>
-          </div>
-
-          <div className="rounded-sm border border-[#d8ddd7] bg-white p-5 space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-[#151817] mb-1">
-                  Citizen / Resident Name
-                </label>
-                <input
-                  type="text"
-                  value={citizenName}
-                  onChange={(e) => setCitizenName(e.target.value)}
-                  placeholder="e.g. Ramesh Kumar"
-                  className="w-full rounded-sm border border-[#d8ddd7] bg-[#fdfdfc] p-2 text-xs text-[#151817] focus:border-[#2e7d57] focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-[#151817] mb-1">
-                  Mobile Phone Number *
-                </label>
-                <input
-                  type="tel"
-                  value={citizenPhone}
-                  onChange={(e) => setCitizenPhone(e.target.value)}
-                  placeholder="+91 98490 00000"
-                  className="w-full rounded-sm border border-[#d8ddd7] bg-[#fdfdfc] p-2 text-xs text-[#151817] focus:border-[#2e7d57] focus:outline-none"
-                />
-                <p className="text-[11px] text-[#6b746e] mt-1">
-                  Driver will SMS arrival window before dispatch.
-                </p>
-              </div>
-            </div>
-
-            {/* Date Picker */}
-            <div className="space-y-1">
-              <label className="block text-xs font-semibold text-[#151817]">
-                Preferred Collection Date *
-              </label>
-              <input
-                type="date"
-                min={new Date().toISOString().split("T")[0]}
-                value={pickupDate}
-                onChange={(e) => setPickupDate(e.target.value)}
-                className="w-full sm:w-64 rounded-sm border border-[#d8ddd7] bg-[#fdfdfc] p-2 text-xs text-[#151817] focus:border-[#2e7d57] focus:outline-none font-mono"
-              />
-            </div>
-
-            {/* Time Slot Radio Buttons */}
-            <div className="space-y-1.5">
-              <label className="block text-xs font-semibold text-[#151817]">
-                Municipal Route Time Window *
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {[
-                  { slot: "09:00 - 12:00", label: "Morning Window", sub: "09:00 AM - 12:00 PM" },
-                  { slot: "12:00 - 15:00", label: "Afternoon Window", sub: "12:00 PM - 03:00 PM" },
-                  { slot: "15:00 - 18:00", label: "Evening Window", sub: "03:00 PM - 06:00 PM" },
-                ].map((s) => (
-                  <label
-                    key={s.slot}
-                    className={`cursor-pointer rounded-sm border p-3 flex flex-col gap-1 transition-colors ${
-                      pickupSlot === s.slot
-                        ? "border-[#2e7d57] bg-[#edf5f0]"
-                        : "border-[#d8ddd7] bg-white hover:bg-[#f9faf8]"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-[#151817]">{s.label}</span>
-                      <input
-                        type="radio"
-                        name="pickup_slot"
-                        value={s.slot}
-                        checked={pickupSlot === s.slot}
-                        onChange={(e) => setPickupSlot(e.target.value)}
-                        className="text-[#2e7d57] focus:ring-0"
-                      />
-                    </div>
-                    <span className="text-[11px] font-mono text-[#6b746e]">{s.sub}</span>
+                  <label htmlFor="notes-input" className="block text-xs font-semibold text-[#151817] mb-1">
+                    Notes for Collector (Optional)
                   </label>
-                ))}
+                  <input
+                    id="notes-input"
+                    type="text"
+                    placeholder="Gate code, parking instructions, or landmark"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    className="w-full rounded-[3px] border border-[#d8ddd7] bg-white px-3 py-2 text-xs"
+                  />
+                </div>
               </div>
-            </div>
+            </CardContent>
+          </Card>
 
-            {/* Special Instructions */}
-            <div className="space-y-1">
-              <label className="block text-xs font-semibold text-[#151817]">
-                Access Instructions / Notes (Optional)
-              </label>
-              <input
-                type="text"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="e.g. Ring bell 4B, security gate code 1234, heavy items need trolley"
-                className="w-full rounded-sm border border-[#d8ddd7] bg-[#fdfdfc] p-2 text-xs text-[#151817] focus:border-[#2e7d57] focus:outline-none"
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-between pt-4 border-t border-[#d8ddd7]">
-            <button
-              type="button"
-              onClick={() => setCurrentStep(2)}
-              className="rounded-sm border border-[#d8ddd7] px-4 py-2 text-xs font-medium text-[#6b746e] hover:bg-[#f4f5f1]"
-            >
-              ← Back to Location
-            </button>
-            <button
-              type="button"
-              disabled={!citizenPhone.trim() || !pickupDate}
-              onClick={() => setCurrentStep(4)}
-              className="rounded-sm bg-[#2e7d57] px-6 py-2 text-xs font-semibold text-white hover:bg-[#246644] disabled:opacity-40"
-            >
-              Review Request →
-            </button>
+          {/* Stepper Navigation */}
+          <div className="pt-4 flex items-center justify-between border-t border-[#d8ddd7]">
+            <Button type="button" variant="outline" onClick={() => setCurrentStep(2)}>
+              &larr; Back to Location
+            </Button>
+            <Button type="button" variant="primary" onClick={handleProceedToReview}>
+              Continue to Review &rarr;
+            </Button>
           </div>
         </div>
       )}
 
-      {/* STEP 4: REVIEW & CONFIRM */}
+      {/* ========================================================= */}
+      {/* STEP 4: REVIEW ("REVIEW YOUR PICKUP") */}
+      {/* ========================================================= */}
       {currentStep === 4 && (
         <div className="space-y-6">
-          <div>
-            <h2 className="text-lg font-semibold text-[#151817]">Review Collection Request</h2>
+          <div className="space-y-1">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-[#2e7d57] font-bold block">
+              Step 4 of 4
+            </span>
+            <h2 className="text-xl font-display font-bold text-[#151817]">
+              Review your pickup
+            </h2>
             <p className="text-xs text-[#6b746e]">
-              Verify pickup logistics and manifest summary before municipal route booking.
+              Please verify your items, address, and scheduled window before confirming.
             </p>
           </div>
 
-          {submissionError && (
-            <div className="rounded-sm border border-[#f5c6cb] bg-[#fdf2f2] p-3 text-xs text-[#721c24]">
-              <strong>Error:</strong> {submissionError}
-            </div>
-          )}
-
-          {/* Logistics Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="rounded-sm border border-[#d8ddd7] bg-white p-4 space-y-3">
-              <h3 className="text-xs font-bold text-[#151817] uppercase tracking-wider font-mono border-b border-[#e9ede7] pb-2">
-                Pickup Logistics
-              </h3>
-              <div className="space-y-2 text-xs">
-                <div>
-                  <span className="text-[#6b746e] block text-[11px]">Address:</span>
-                  <span className="font-semibold text-[#151817]">{address}</span>
-                </div>
-                <div>
-                  <span className="text-[#6b746e] block text-[11px]">Assigned Zone:</span>
-                  <span className="font-medium text-[#151817]">
-                    {selectedZone.name} ({selectedZone.code})
+          <Card>
+            <CardContent className="p-6 space-y-6">
+              {/* Items summary */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between border-b border-[#d8ddd7] pb-2">
+                  <span className="text-xs font-bold text-[#151817] uppercase tracking-wider font-mono">
+                    Items to Collect ({totalCount})
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentStep(1)}
+                    className="text-xs font-semibold text-[#2e7d57] hover:underline"
+                  >
+                    Edit items
+                  </button>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="divide-y divide-[#d8ddd7]">
+                  {items.map((i) => (
+                    <div key={i.id} className="py-2.5 flex items-center justify-between text-xs">
+                      <div>
+                        <span className="font-semibold text-[#151817]">{i.item_type}</span>
+                        <span className="text-[#6b746e] ml-2">({i.brand}) &times; {i.quantity}</span>
+                      </div>
+                      <span className="font-mono text-[#151817]">~{i.weight_kg} kg</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between pt-1 font-mono text-xs font-bold text-[#151817]">
+                  <span>Total Estimated Weight:</span>
+                  <span className="text-[#2e7d57]">{totalWeight} kg</span>
+                </div>
+              </div>
+
+              {/* Location summary */}
+              <div className="space-y-2 border-t border-[#d8ddd7] pt-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#151817] uppercase tracking-wider font-mono">
+                    Pickup Location
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentStep(2)}
+                    className="text-xs font-semibold text-[#2e7d57] hover:underline"
+                  >
+                    Edit location
+                  </button>
+                </div>
+                <p className="text-xs text-[#151817] font-medium">{address}</p>
+                <p className="text-[11px] text-[#6b746e]">Area: {humanArea}</p>
+              </div>
+
+              {/* Schedule summary */}
+              <div className="space-y-2 border-t border-[#d8ddd7] pt-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#151817] uppercase tracking-wider font-mono">
+                    Schedule &amp; Contact
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentStep(3)}
+                    className="text-xs font-semibold text-[#2e7d57] hover:underline"
+                  >
+                    Edit schedule
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                   <div>
                     <span className="text-[#6b746e] block text-[11px]">Date:</span>
                     <span className="font-mono font-semibold text-[#151817]">{pickupDate}</span>
@@ -1032,206 +1242,149 @@ export default function CitizenRequestPage() {
                     <span className="text-[#6b746e] block text-[11px]">Time Window:</span>
                     <span className="font-mono font-semibold text-[#151817]">{pickupSlot}</span>
                   </div>
-                </div>
-                <div>
-                  <span className="text-[#6b746e] block text-[11px]">Contact:</span>
-                  <span className="font-medium text-[#151817]">
-                    {citizenName ? `${citizenName} · ` : ""}
-                    {citizenPhone}
-                  </span>
-                </div>
-                {notes && (
                   <div>
-                    <span className="text-[#6b746e] block text-[11px]">Notes:</span>
-                    <span className="text-[#151817] italic">{notes}</span>
+                    <span className="text-[#6b746e] block text-[11px]">Phone:</span>
+                    <span className="font-mono font-semibold text-[#151817]">{citizenPhone}</span>
                   </div>
-                )}
-              </div>
-            </div>
-
-            {/* Impact Metric Summary */}
-            <div className="rounded-sm border border-[#d8ddd7] bg-white p-4 space-y-3">
-              <h3 className="text-xs font-bold text-[#151817] uppercase tracking-wider font-mono border-b border-[#e9ede7] pb-2">
-                Forecasted Circular Impact
-              </h3>
-              <div className="grid grid-cols-2 gap-3 pt-2">
-                <div className="rounded-sm bg-[#f4f5f1] p-3 text-center border border-[#e2e6df]">
-                  <div className="text-xl font-bold font-mono text-[#2e7d57]">
-                    {Math.round(totalWeight * 10) / 10} kg
-                  </div>
-                  <div className="text-[11px] text-[#6b746e] mt-0.5">E-Waste Diverted</div>
-                </div>
-                <div className="rounded-sm bg-[#f4f5f1] p-3 text-center border border-[#e2e6df]">
-                  <div className="text-xl font-bold font-mono text-[#2e7d57]">
-                    {Math.round(totalCO2e * 10) / 10} kg
-                  </div>
-                  <div className="text-[11px] text-[#6b746e] mt-0.5">CO₂e Abated</div>
+                  {notes && (
+                    <div>
+                      <span className="text-[#6b746e] block text-[11px]">Notes:</span>
+                      <span className="text-[#151817]">{notes}</span>
+                    </div>
+                  )}
                 </div>
               </div>
-              <p className="text-[11px] text-[#6b746e] pt-1">
-                Material recovery is routed through verified R2/ISO-14001 processing facilities in Hyderabad.
-              </p>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
-          {/* Item Review Mini Table */}
-          <div className="rounded-sm border border-[#d8ddd7] bg-white p-4 space-y-2">
-            <h3 className="text-xs font-bold text-[#151817] uppercase tracking-wider font-mono">
-              Manifest Items ({totalUnits} total)
-            </h3>
-            <div className="divide-y divide-[#e9ede7] text-xs">
-              {items.map((it) => (
-                <div key={it.id} className="py-2 flex justify-between items-center">
-                  <div>
-                    <span className="font-semibold text-[#151817]">{it.item_type}</span>
-                    <span className="text-[#6b746e] ml-2">({it.brand}) × {it.quantity}</span>
-                  </div>
-                  <span className="font-mono text-[#6b746e]">{it.weight_kg * it.quantity} kg</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex justify-between pt-4 border-t border-[#d8ddd7]">
-            <button
+          {/* Stepper Navigation */}
+          <div className="pt-4 flex items-center justify-between border-t border-[#d8ddd7]">
+            <Button
               type="button"
+              variant="outline"
               disabled={isSubmitting}
               onClick={() => setCurrentStep(3)}
-              className="rounded-sm border border-[#d8ddd7] px-4 py-2 text-xs font-medium text-[#6b746e] hover:bg-[#f4f5f1]"
             >
-              ← Back to Details
-            </button>
-            <button
+              &larr; Back to Schedule
+            </Button>
+            <Button
               type="button"
+              variant="primary"
               disabled={isSubmitting}
               onClick={handleSubmitRequest}
-              className="rounded-sm bg-[#2e7d57] px-6 py-2.5 text-xs font-bold text-white hover:bg-[#246644] transition-colors disabled:opacity-50"
+              className="px-6 py-3"
             >
-              {isSubmitting ? "Registering Request in Database..." : "Confirm & Schedule Pickup ✓"}
-            </button>
+              {isSubmitting ? "Scheduling Pickup..." : "Confirm Pickup &rarr;"}
+            </Button>
           </div>
         </div>
       )}
 
-      {/* STEP 5: CONFIRMATION & QR PASS */}
+      {/* ========================================================= */}
+      {/* STEP 5: SUCCESS STATE */}
+      {/* ========================================================= */}
       {currentStep === 5 && confirmedData && (
-        <div className="space-y-6">
-          <div className="rounded-sm border border-[#2e7d57] bg-[#f9fbf9] p-6 text-center space-y-3">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#2e7d57] text-white text-xl font-bold">
+        <div className="space-y-8">
+          <Card className="border-[#2e7d57] bg-white p-6 sm:p-10 text-center space-y-6 shadow-sm">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#edf5f0] text-[#2e7d57] text-xl font-bold">
               ✓
             </div>
-            <h2 className="text-2xl font-display font-bold text-[#151817]">
-              Collection Request Confirmed!
-            </h2>
-            <p className="text-xs text-[#4b554d] max-w-md mx-auto">
-              Your request has been logged in the municipal scheduling system. Your tracking pass and QR token are ready.
-            </p>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-            {/* QR Code Pass Box */}
-            <div className="rounded-sm border border-[#d8ddd7] bg-white p-6 text-center space-y-4 shadow-sm">
-              <div className="text-xs font-mono font-bold uppercase tracking-wider text-[#6b746e]">
-                Municipal Verification Token
+            <div className="space-y-2">
+              <span className="text-[10px] font-mono uppercase tracking-widest text-[#2e7d57] font-bold block">
+                Confirmed Booking
+              </span>
+              <h2 className="text-2xl sm:text-3xl font-display font-bold text-[#151817]">
+                Pickup requested
+              </h2>
+              <p className="text-xs sm:text-sm text-[#6b746e] max-w-md mx-auto">
+                Your collection pass is active. Keep your tracking code or QR code handy for the driver during pickup.
+              </p>
+            </div>
+
+            {/* Tracking Code Box */}
+            <div className="mx-auto max-w-sm rounded-[3px] border border-[#d8ddd7] bg-[#f4f5f1] p-5 space-y-3">
+              <span className="text-[11px] font-mono text-[#6b746e] uppercase tracking-wider block">
+                Your Tracking Code
+              </span>
+              <div className="font-mono text-2xl font-bold text-[#151817] tracking-wider select-all">
+                {confirmedData.qrToken}
               </div>
+              <div className="flex items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyToken}
+                  className="rounded-[3px] border border-[#d8ddd7] bg-white px-3 py-1.5 text-xs font-semibold text-[#151817] hover:bg-[#e9ede7] transition-colors"
+                >
+                  {copiedToken ? "✓ Copied!" : "Copy Code"}
+                </button>
+              </div>
+            </div>
 
-              {qrCodeDataUrl ? (
-                <div className="inline-block p-3 bg-white border border-[#d8ddd7] rounded-sm">
+            {/* QR Code Pass */}
+            {qrCodeDataUrl && (
+              <div className="space-y-2">
+                <div className="inline-block p-2 bg-white border border-[#d8ddd7] rounded-[3px]">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={qrCodeDataUrl}
-                    alt="Pickup QR Code"
-                    className="h-48 w-48 mx-auto"
+                    alt="Pickup QR Pass"
+                    className="h-44 w-44 mx-auto"
                   />
                 </div>
-              ) : (
-                <div className="h-48 w-48 mx-auto bg-[#f4f5f1] flex items-center justify-center font-mono text-xs">
-                  Generating QR...
-                </div>
-              )}
-
-              <div className="font-mono text-base font-bold text-[#151817] tracking-wider bg-[#f4f5f1] py-1.5 px-3 rounded-sm border border-[#d8ddd7] inline-block">
-                {confirmedData.qrToken}
+                <p className="text-[11px] text-[#6b746e]">
+                  The driver will scan this pass at your door to open the digital weighing scale record.
+                </p>
               </div>
+            )}
 
-              <p className="text-[11px] text-[#6b746e]">
-                Present this QR code to the municipal collector during handover for weight scale validation.
-              </p>
-
-              <div className="flex flex-col sm:flex-row gap-2 justify-center pt-2">
-                {qrCodeDataUrl && (
-                  <a
-                    href={qrCodeDataUrl}
-                    download={`${confirmedData.qrToken}-pass.png`}
-                    className="inline-flex items-center justify-center rounded-sm border border-[#2e7d57] px-4 py-2 text-xs font-semibold text-[#2e7d57] hover:bg-[#edf5f0] transition-colors"
-                  >
-                    ⬇ Download QR Pass
-                  </a>
-                )}
-                <Link
-                  href={confirmedData.trackingUrl}
-                  className="inline-flex items-center justify-center rounded-sm bg-[#2e7d57] px-4 py-2 text-xs font-semibold text-white hover:bg-[#246644] transition-colors"
-                >
-                  Track Live Status →
-                </Link>
-              </div>
+            {/* Action buttons */}
+            <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+              <Link href={confirmedData.trackingUrl}>
+                <Button variant="primary" className="w-full sm:w-auto px-6 py-2.5">
+                  Track Pickup Status &rarr;
+                </Button>
+              </Link>
+              <Button
+                variant="outline"
+                onClick={() => window.print()}
+                className="w-full sm:w-auto"
+              >
+                Save Pickup Pass
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setItems([]);
+                  setCurrentStep(1);
+                  setConfirmedData(null);
+                }}
+                className="w-full sm:w-auto"
+              >
+                Schedule another pickup
+              </Button>
             </div>
+          </Card>
 
-            {/* Preparation Instructions */}
-            <div className="rounded-sm border border-[#d8ddd7] bg-white p-6 space-y-4">
-              <h3 className="text-xs font-bold text-[#151817] uppercase tracking-wider font-mono border-b border-[#e9ede7] pb-2">
-                Handover Checklist &amp; Next Steps
-              </h3>
-              <ul className="space-y-3 text-xs text-[#4b554d]">
-                <li className="flex items-start gap-2">
-                  <span className="font-bold text-[#2e7d57] font-mono">1.</span>
-                  <span>
-                    <strong>Personal Data Wipe:</strong> Please sign out of Apple/Google accounts and factory reset mobile devices and computers where feasible.
-                  </span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="font-bold text-[#2e7d57] font-mono">2.</span>
-                  <span>
-                    <strong>Unplug &amp; Wrap Cords:</strong> Keep cords and peripheral power adapters grouped with their primary units.
-                  </span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="font-bold text-[#2e7d57] font-mono">3.</span>
-                  <span>
-                    <strong>Scheduled Pickup:</strong> Driver arrival window is{" "}
-                    <strong>{confirmedData.pickupDate}</strong> during{" "}
-                    <strong>{confirmedData.pickupSlot}</strong>.
-                  </span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="font-bold text-[#2e7d57] font-mono">4.</span>
-                  <span>
-                    <strong>Digital Scale Verification:</strong> The collector will weigh the items on-site and record certified weights directly into the recovery ledger.
-                  </span>
-                </li>
-              </ul>
-
-              <div className="pt-4 border-t border-[#e9ede7] flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  className="rounded-sm border border-[#d8ddd7] bg-[#f4f5f1] px-3.5 py-1.5 text-xs text-[#151817] hover:bg-[#e9ede7]"
-                >
-                  🖨 Print Confirmation
-                </button>
-                <Link
-                  href="/request"
-                  onClick={() => {
-                    setCurrentStep(1);
-                    setItems([]);
-                    setConfirmedData(null);
-                  }}
-                  className="rounded-sm border border-[#d8ddd7] px-3.5 py-1.5 text-xs text-[#6b746e] hover:bg-[#f4f5f1]"
-                >
-                  + Schedule Another Pickup
-                </Link>
-              </div>
-            </div>
+          {/* Operational reassurance */}
+          <div className="rounded-[3px] border border-[#d8ddd7] bg-[#f9faf8] p-5 space-y-3">
+            <h3 className="text-xs font-bold text-[#151817] uppercase tracking-wider font-mono">
+              Next Steps:
+            </h3>
+            <ul className="space-y-2 text-xs text-[#6b746e]">
+              <li className="flex items-start gap-2">
+                <span className="font-mono text-[#2e7d57] font-bold">1.</span>
+                <span>Our municipal route scheduler will batch your request into the daily collection route.</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="font-mono text-[#2e7d57] font-bold">2.</span>
+                <span>The driver will arrive during your scheduled window ({confirmedData.pickupDate}, {confirmedData.pickupSlot}).</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="font-mono text-[#2e7d57] font-bold">3.</span>
+                <span>Your items will be weighed on a calibrated scale, and custody transfer will be logged on your tracking page.</span>
+              </li>
+            </ul>
           </div>
         </div>
       )}
