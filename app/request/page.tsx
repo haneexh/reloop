@@ -910,7 +910,12 @@ export default function CitizenRequestPage() {
                   : "border-[#d8ddd7] bg-white hover:bg-[#f4f5f1]"
               }`}
             >
-              <span className="text-lg">📍</span>
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-sm bg-[#e9ede7] text-[#2e7d57]">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              </div>
               <div className="space-y-1">
                 <span className="text-xs font-bold text-[#151817] block">
                   Use my current location
@@ -930,7 +935,11 @@ export default function CitizenRequestPage() {
                   : "border-[#d8ddd7] bg-white hover:bg-[#f4f5f1]"
               }`}
             >
-              <span className="text-lg">✍️</span>
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-sm bg-[#e9ede7] text-[#151817]">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+              </div>
               <div className="space-y-1">
                 <span className="text-xs font-bold text-[#151817] block">
                   Enter address manually
