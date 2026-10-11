@@ -1,25 +1,52 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { supabaseAdmin as supabase } from "@/lib/supabase";
+import { enforceOperatorRole } from "@/lib/operator-auth";
 import {
-  isAuthorizedCollector,
   validateActualWeight,
   calculateWeightVariance,
   validateStopForCollection,
   VerificationMethod,
 } from "@/lib/collector-engine";
 
+const CollectorCollectSchema = z
+  .object({
+    route_id: z.string().uuid("route_id must be a valid UUID"),
+    request_id: z.string().uuid("request_id must be a valid UUID").optional().nullable(),
+    qr_token: z.string().min(1, "qr_token cannot be empty").optional().nullable(),
+    actual_weight_kg: z.number().positive("actual_weight_kg must be positive"),
+    verification_method: z.enum(["qr_scan", "digital_scale", "manual"]).optional(),
+    collector_id: z.string().optional().nullable(),
+    actor_role: z.string().optional(),
+    notes: z.string().optional().nullable(),
+    lat: z.number().min(-90).max(90).optional().nullable(),
+    lng: z.number().min(-180).max(180).optional().nullable(),
+    is_simulated: z.boolean().optional(),
+  })
+  .strict();
+
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({}));
-    const role = req.headers.get("x-user-role") || body.actor_role || "COLLECTOR";
+    // 0. Enforce COLLECTOR role authentication
+    const authResult = enforceOperatorRole(req, ["COLLECTOR"]);
+    if ("errorResponse" in authResult) {
+      return authResult.errorResponse;
+    }
 
-    // 1. Authorization boundary: CITIZEN cannot collect requests
-    if (!isAuthorizedCollector(role)) {
+    const rawJson = await req.json().catch(() => ({}));
+    const parseResult = CollectorCollectSchema.safeParse(rawJson);
+    if (!parseResult.success) {
       return NextResponse.json(
-        { error: "Forbidden: Citizen role is not authorized to execute pickup collections." },
-        { status: 403 }
+        {
+          error: "Invalid request body or unknown fields provided.",
+          details: parseResult.error.format(),
+        },
+        { status: 400 }
       );
     }
+
+    const body = parseResult.data;
+    const role = authResult.session.role;
 
     const {
       route_id,
@@ -32,10 +59,6 @@ export async function POST(req: NextRequest) {
       lat,
       lng,
     } = body;
-
-    if (!route_id) {
-      return NextResponse.json({ error: "route_id is required." }, { status: 400 });
-    }
 
     if (!request_id && !qr_token) {
       return NextResponse.json(
@@ -117,7 +140,7 @@ export async function POST(req: NextRequest) {
 
     if (qr_token) {
       reqQuery = reqQuery.eq("qr_token", qr_token.trim());
-    } else {
+    } else if (request_id) {
       reqQuery = reqQuery.eq("id", request_id);
     }
 

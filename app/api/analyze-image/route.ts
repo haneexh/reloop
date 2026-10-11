@@ -110,14 +110,12 @@ function extractJSON(text: string): AssessmentResult | null {
   };
 
   try {
-    // Remove markdown code blocks if present
     const cleaned = text.replace(/```json\s*|```/g, "").trim();
     const parsed = JSON.parse(cleaned);
     if (parsed && typeof parsed === "object") {
       return sanitizeParsed(parsed);
     }
   } catch {
-    // Attempt regex extraction of the first {...} block
     const match = text.match(/\{[\s\S]*\}/);
     if (match) {
       try {
@@ -133,221 +131,251 @@ function extractJSON(text: string): AssessmentResult | null {
   return null;
 }
 
-async function callAnthropicVision(
+/**
+ * 1. Google Gemini Vision API Call
+ * Primary: GEMINI_MODEL or gemini-3.5-flash
+ * Fallback: gemini-2.5-flash
+ */
+async function callGeminiVision(
   base64Data: string,
   mediaType: string,
   isRetry = false
-): Promise<string | null> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return null;
+): Promise<{ text: string; model: string } | { error: string }> {
+  const apiKey =
+    process.env.GEMINI_API_KEY ||
+    process.env.GOOGLE_AI_API_KEY ||
+    process.env.GOOGLE_API_KEY;
+  if (!apiKey || apiKey === "[SENSITIVE]") {
+    return { error: "GEMINI_API_KEY not configured or placeholder." };
+  }
 
   const prompt = isRetry
     ? `${SYSTEM_PROMPT}\n\nIMPORTANT: Your previous output was not valid JSON. Return ONLY the raw JSON object, starting with { and ending with }.`
     : SYSTEM_PROMPT;
 
-  const model = process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022";
+  const primaryModel = process.env.GEMINI_MODEL || "gemini-3.5-flash";
+  const fallbackModel = "gemini-2.5-flash";
+  const models = Array.from(new Set([primaryModel, fallbackModel]));
 
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 1000,
-        messages: [
-          {
-            role: "user",
-            content: [
+  let lastError = "";
+
+  for (const model of models) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [
               {
-                type: "image",
-                source: {
-                  type: "base64",
-                  media_type: mediaType,
-                  data: base64Data,
-                },
-              },
-              {
-                type: "text",
-                text: prompt,
+                parts: [
+                  { text: prompt },
+                  {
+                    inlineData: {
+                      mimeType: mediaType,
+                      data: base64Data,
+                    },
+                  },
+                ],
               },
             ],
-          },
-        ],
-      }),
-    });
+            generationConfig: {
+              responseMimeType: "application/json",
+              temperature: 0.2,
+            },
+          }),
+        }
+      );
 
-    if (!res.ok) {
-      console.error("Anthropic Vision API error:", res.status, await res.text());
-      return null;
+      if (!res.ok) {
+        const errText = await res.text();
+        lastError = `Gemini (${model}) ${res.status}: ${errText.slice(0, 200)}`;
+        console.warn(lastError);
+        continue;
+      }
+
+      const data = await res.json();
+      const text =
+        data.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text).filter(Boolean).join("") ||
+        data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (text) {
+        return { text, model };
+      }
+    } catch (err) {
+      lastError = `Gemini (${model}) network exception: ${err instanceof Error ? err.message : String(err)}`;
+      console.warn(lastError);
     }
-
-    const data = await res.json();
-    const textContent = data.content?.find(
-      (c: { type: string; text?: string }) => c.type === "text"
-    )?.text;
-    return textContent || null;
-  } catch (err) {
-    console.error("Anthropic Vision network error:", err);
-    return null;
   }
+
+  return { error: lastError || "All Gemini endpoints failed." };
 }
 
+/**
+ * 2. Anthropic Vision API Call
+ * Primary: ANTHROPIC_MODEL or claude-sonnet-5-5
+ * Fallback: claude-haiku-5-5
+ */
+async function callAnthropicVision(
+  base64Data: string,
+  mediaType: string,
+  isRetry = false
+): Promise<{ text: string; model: string } | { error: string }> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey || apiKey === "[SENSITIVE]") {
+    return { error: "ANTHROPIC_API_KEY not configured or placeholder." };
+  }
+
+  const prompt = isRetry
+    ? `${SYSTEM_PROMPT}\n\nIMPORTANT: Your previous output was not valid JSON. Return ONLY the raw JSON object, starting with { and ending with }.`
+    : SYSTEM_PROMPT;
+
+  const primaryModel = process.env.ANTHROPIC_MODEL || "claude-sonnet-5-5";
+  const fallbackModel = "claude-haiku-5-5";
+  const models = Array.from(new Set([primaryModel, fallbackModel]));
+
+  let lastError = "";
+
+  for (const model of models) {
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 1000,
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "image",
+                  source: {
+                    type: "base64",
+                    media_type: mediaType,
+                    data: base64Data,
+                  },
+                },
+                {
+                  type: "text",
+                  text: prompt,
+                },
+              ],
+            },
+          ],
+        }),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        lastError = `Anthropic (${model}) ${res.status}: ${errText.slice(0, 200)}`;
+        console.warn(lastError);
+        continue;
+      }
+
+      const data = await res.json();
+      const text = data.content?.find(
+        (c: { type: string; text?: string }) => c.type === "text"
+      )?.text;
+      if (text) {
+        return { text, model };
+      }
+    } catch (err) {
+      lastError = `Anthropic (${model}) network exception: ${err instanceof Error ? err.message : String(err)}`;
+      console.warn(lastError);
+    }
+  }
+
+  return { error: lastError || "All Anthropic endpoints failed." };
+}
+
+/**
+ * 3. OpenAI Vision API Call
+ * Primary: OPENAI_MODEL or gpt-4o
+ * Fallback: gpt-4o-mini
+ */
 async function callOpenAIVision(
   base64Data: string,
   mediaType: string,
   isRetry = false
-): Promise<string | null> {
+): Promise<{ text: string; model: string } | { error: string }> {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
+  if (!apiKey || apiKey === "[SENSITIVE]") {
+    return { error: "OPENAI_API_KEY not configured or placeholder." };
+  }
 
   const prompt = isRetry
     ? `${SYSTEM_PROMPT}\n\nIMPORTANT: Your previous output was not valid JSON. Return ONLY the raw JSON object, starting with { and ending with }.`
     : SYSTEM_PROMPT;
 
   const imageUrl = `data:${mediaType};base64,${base64Data}`;
-  const model = process.env.OPENAI_MODEL || "gpt-4o";
-
-  try {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 1000,
-        response_format: { type: "json_object" },
-        messages: [
-          {
-            role: "system",
-            content: prompt,
-          },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: "Assess this item for circular economy re-use or recycling." },
-              {
-                type: "image_url",
-                image_url: {
-                  url: imageUrl,
-                  detail: "low",
-                },
-              },
-            ],
-          },
-        ],
-      }),
-    });
-
-    if (!res.ok) {
-      console.error("OpenAI Vision API error:", res.status, await res.text());
-      return null;
-    }
-
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content || null;
-  } catch (err) {
-    console.error("OpenAI Vision network error:", err);
-    return null;
-  }
-}
-
-async function callGeminiVision(
-  base64Data: string,
-  mediaType: string,
-  isRetry = false
-): Promise<string | null> {
-  const apiKey =
-    process.env.GEMINI_API_KEY ||
-    process.env.GOOGLE_AI_API_KEY ||
-    process.env.GOOGLE_API_KEY;
-  if (!apiKey) return null;
-
-  const prompt = isRetry
-    ? `${SYSTEM_PROMPT}\n\nIMPORTANT: Your previous output was not valid JSON. Return ONLY the raw JSON object, starting with { and ending with }.`
-    : SYSTEM_PROMPT;
-
-  // Supported multimodal models in active priority order
-  const primaryGeminiModel = process.env.GEMINI_MODEL || "gemini-1.5-flash";
-  const models = Array.from(
-    new Set([primaryGeminiModel, "gemini-2.0-flash", "gemini-1.5-pro"])
-  );
+  const primaryModel = process.env.OPENAI_MODEL || "gpt-4o";
+  const fallbackModel = "gpt-4o-mini";
+  const models = Array.from(new Set([primaryModel, fallbackModel]));
 
   let lastError = "";
 
   for (const model of models) {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [
+    try {
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 1000,
+          response_format: { type: "json_object" },
+          messages: [
+            {
+              role: "system",
+              content: prompt,
+            },
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "Assess this item for circular economy re-use or recycling." },
                 {
-                  parts: [
-                    { text: prompt },
-                    {
-                      inlineData: {
-                        mimeType: mediaType,
-                        data: base64Data,
-                      },
-                    },
-                  ],
+                  type: "image_url",
+                  image_url: {
+                    url: imageUrl,
+                    detail: "low",
+                  },
                 },
               ],
-              generationConfig: {
-                responseMimeType: "application/json",
-                temperature: 0.2,
-              },
-            }),
-          }
-        );
+            },
+          ],
+        }),
+      });
 
-        if (res.status === 503 || res.status === 429) {
-          lastError = `Gemini (${model}) ${res.status}`;
-          const delay = (attempt + 1) * 2000;
-          console.warn(`Gemini (${model}) returned ${res.status}, retrying in ${delay}ms...`);
-          await new Promise((r) => setTimeout(r, delay));
-          continue;
-        }
-
-        if (!res.ok) {
-          const errBody = await res.text();
-          lastError = `Gemini (${model}) error ${res.status}: ${errBody}`;
-          console.error(lastError);
-          break; // Try next model in list
-        }
-
-        const data = await res.json();
-        const text =
-          data.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text).filter(Boolean).join("") ||
-          data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text) {
-          return text;
-        } else {
-          lastError = `Gemini returned empty candidates: ${JSON.stringify(data)}`;
-        }
-      } catch (err) {
-        lastError = `Gemini network error (${model}): ${err instanceof Error ? err.message : String(err)}`;
-        console.error(lastError);
+      if (!res.ok) {
+        const errText = await res.text();
+        lastError = `OpenAI (${model}) ${res.status}: ${errText.slice(0, 200)}`;
+        console.warn(lastError);
+        continue;
       }
+
+      const data = await res.json();
+      const content = data.choices?.[0]?.message?.content;
+      if (content) {
+        return { text: content, model };
+      }
+    } catch (err) {
+      lastError = `OpenAI (${model}) network exception: ${err instanceof Error ? err.message : String(err)}`;
+      console.warn(lastError);
     }
   }
 
-  if (lastError) {
-    console.warn("All Gemini models failed:", lastError);
-  }
-  return null;
+  return { error: lastError || "All OpenAI endpoints failed." };
 }
 
 export async function POST(req: NextRequest) {
+  const startTime = Date.now();
   try {
     const body = await req.json();
     const { imageBase64, mediaType = "image/jpeg" } = body;
@@ -356,93 +384,88 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Image data (imageBase64) is required." }, { status: 400 });
     }
 
-    // Strip base64 prefix if included (e.g. data:image/png;base64,...)
     const cleanBase64 = imageBase64.replace(/^data:[^;]+;base64,/, "").trim();
 
-    let rawOutput: string | null = null;
-    let providerUsed = "none";
+    const providerAttempts: Array<{ provider: string; model?: string; status: "success" | "error"; error?: string }> = [];
 
-    // 1. Try Gemini Vision first if GEMINI_API_KEY is present
-    if (
-      process.env.GEMINI_API_KEY ||
-      process.env.GOOGLE_AI_API_KEY ||
-      process.env.GOOGLE_API_KEY
-    ) {
-      rawOutput = await callGeminiVision(cleanBase64, mediaType);
-      if (rawOutput) {
-        providerUsed = "gemini";
-        // Retry once if parsing fails
-        if (!extractJSON(rawOutput)) {
-          const retryOutput = await callGeminiVision(cleanBase64, mediaType, true);
-          if (retryOutput && extractJSON(retryOutput)) {
-            rawOutput = retryOutput;
-          }
-        }
+    let successResult: { text: string; provider: string; model: string } | null = null;
+
+    // 1. Try Gemini Vision (Primary: gemini-3.5-flash)
+    console.log("[AI Vision] Attempting Gemini...");
+    const geminiRes = await callGeminiVision(cleanBase64, mediaType);
+    if ("text" in geminiRes) {
+      providerAttempts.push({ provider: "gemini", model: geminiRes.model, status: "success" });
+      successResult = { text: geminiRes.text, provider: "gemini", model: geminiRes.model };
+    } else {
+      providerAttempts.push({ provider: "gemini", status: "error", error: geminiRes.error });
+    }
+
+    // 2. Try Anthropic Vision (Fallback: claude-sonnet-5-5)
+    if (!successResult) {
+      console.log("[AI Vision] Attempting Anthropic...");
+      const anthropicRes = await callAnthropicVision(cleanBase64, mediaType);
+      if ("text" in anthropicRes) {
+        providerAttempts.push({ provider: "anthropic", model: anthropicRes.model, status: "success" });
+        successResult = { text: anthropicRes.text, provider: "anthropic", model: anthropicRes.model };
+      } else {
+        providerAttempts.push({ provider: "anthropic", status: "error", error: anthropicRes.error });
       }
     }
 
-    // 2. Try Claude Vision if Gemini was unavailable or failed
-    if (!rawOutput && process.env.ANTHROPIC_API_KEY) {
-      rawOutput = await callAnthropicVision(cleanBase64, mediaType);
-      if (rawOutput) {
-        providerUsed = "anthropic";
-        // Retry once if parsing fails
-        if (!extractJSON(rawOutput)) {
-          const retryOutput = await callAnthropicVision(cleanBase64, mediaType, true);
-          if (retryOutput && extractJSON(retryOutput)) {
-            rawOutput = retryOutput;
-          }
-        }
+    // 3. Try OpenAI Vision (Fallback: gpt-4o)
+    if (!successResult) {
+      console.log("[AI Vision] Attempting OpenAI...");
+      const openAiRes = await callOpenAIVision(cleanBase64, mediaType);
+      if ("text" in openAiRes) {
+        providerAttempts.push({ provider: "openai", model: openAiRes.model, status: "success" });
+        successResult = { text: openAiRes.text, provider: "openai", model: openAiRes.model };
+      } else {
+        providerAttempts.push({ provider: "openai", status: "error", error: openAiRes.error });
       }
     }
 
-    // 3. Try OpenAI Vision if others were unavailable or failed
-    if (!rawOutput && process.env.OPENAI_API_KEY) {
-      rawOutput = await callOpenAIVision(cleanBase64, mediaType);
-      if (rawOutput) {
-        providerUsed = "openai";
-        // Retry once if parsing fails
-        if (!extractJSON(rawOutput)) {
-          const retryOutput = await callOpenAIVision(cleanBase64, mediaType, true);
-          if (retryOutput && extractJSON(retryOutput)) {
-            rawOutput = retryOutput;
-          }
-        }
-      }
-    }
+    const latencyMs = Date.now() - startTime;
 
-    // 4. If raw output was received, parse it
-    if (rawOutput) {
-      const parsed = extractJSON(rawOutput);
+    // If an AI provider succeeded, parse result
+    if (successResult) {
+      const parsed = extractJSON(successResult.text);
       if (parsed) {
         if (!parsed.is_electronic) {
           return NextResponse.json({
             success: false,
             not_electronic: true,
+            provider: successResult.provider,
+            model: successResult.model,
+            latency_ms: latencyMs,
             message:
               "RE:LOOP currently only assesses electronic items. This photo doesn't appear to show an electronic device - please upload a photo of an electronic item instead.",
             detected_object: parsed.rejection_reason || "Non-electronic item",
+            provider_attempts: providerAttempts,
           });
         }
 
         return NextResponse.json({
           success: true,
-          provider: providerUsed,
+          provider: successResult.provider,
+          model: successResult.model,
+          latency_ms: latencyMs,
           manual_fallback: false,
           data: parsed,
+          provider_attempts: providerAttempts,
         });
       }
     }
 
-    // 5. Graceful Fallback if APIs are not configured or failed entirely
+    // All providers failed or were unconfigured: explicitly report fallback and error trail
+    console.warn("[AI Vision] All providers failed. Returning manual fallback. Attempts:", providerAttempts);
     return NextResponse.json({
       success: true,
       provider: "manual_fallback",
+      model: "none",
+      latency_ms: latencyMs,
       manual_fallback: true,
-      message:
-        (process.env.GEMINI_API_KEY || process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY)
-          ? "Vision model could not identify with high confidence. Pre-filled with best-guess defaults."
-          : "No Vision API key detected. Please verify or complete item details manually.",
+      message: "Vision providers unavailable or uncredited. Switched to manual calibration mode.",
+      provider_attempts: providerAttempts,
       data: {
         item_type: "Other Electronics / Unlisted",
         brand: null,
@@ -455,11 +478,15 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
+    const latencyMs = Date.now() - startTime;
     console.error("Vision assessment route error:", error);
     return NextResponse.json(
       {
         success: false,
         manual_fallback: true,
+        provider: "manual_fallback",
+        model: "none",
+        latency_ms: latencyMs,
         error: error instanceof Error ? error.message : "Internal assessment error",
         data: {
           item_type: "Other Electronics / Unlisted",
@@ -472,7 +499,7 @@ export async function POST(req: NextRequest) {
           is_low_confidence: true,
         },
       },
-      { status: 200 } // Return 200 with fallback data so the user is never blocked
+      { status: 200 }
     );
   }
 }

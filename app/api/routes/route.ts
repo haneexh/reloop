@@ -1,12 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { supabaseAdmin as supabase } from "@/lib/supabase";
 import { FleetVehicle, getAvailableVehicles } from "@/lib/fleet-engine";
 import { SchedulableRequest, scheduleRequests } from "@/lib/scheduler";
 import { optimizeFleetRoutes, FleetOptimizationResult } from "@/lib/route-optimizer";
+import { enforceOperatorRole } from "@/lib/operator-auth";
+
+const RoutesPostSchema = z
+  .object({
+    planning_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format (YYYY-MM-DD)").optional(),
+    planning_slot: z.string().nullable().optional(),
+    persist: z.boolean().optional(),
+  })
+  .strict();
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({}));
+    // 0. Authorization check
+    const authResult = enforceOperatorRole(req, ["DISPATCHER"]);
+    if ("errorResponse" in authResult) {
+      return authResult.errorResponse;
+    }
+
+    const rawJson = await req.json().catch(() => ({}));
+    const parseResult = RoutesPostSchema.safeParse(rawJson);
+    if (!parseResult.success) {
+      return NextResponse.json(
+        {
+          error: "Invalid request body or unknown fields provided.",
+          details: parseResult.error.format(),
+        },
+        { status: 400 }
+      );
+    }
+
+    const body = parseResult.data;
     const planningDate =
       body.planning_date || new Date().toISOString().split("T")[0];
     const planningSlot = body.planning_slot || null;

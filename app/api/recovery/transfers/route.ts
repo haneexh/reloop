@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabase";
 import type { Json } from "@/types/database";
 import {
-  isAuthorizedRecoveryOperator,
   validateTransferBatch,
   validateRecoveryBreakdown,
   mapPartnerToFacility,
@@ -68,18 +67,45 @@ export async function GET() {
   }
 }
 
+import { z } from "zod";
+import { enforceOperatorRole } from "@/lib/operator-auth";
+
+const RecoveryTransferPostSchema = z
+  .object({
+    facility_id: z.string().uuid("facility_id must be a valid UUID"),
+    collection_record_ids: z.array(z.string().uuid()).min(1, "At least one collection record must be selected"),
+    route_id: z.string().uuid().optional().nullable(),
+    transferred_weight_kg: z.number().positive("transferred_weight_kg must be positive"),
+    refurbished_pct: z.number().min(0).max(100).default(0),
+    recycled_pct: z.number().min(0).max(100).default(0),
+    residual_pct: z.number().min(0).max(100).default(0),
+    notes: z.string().optional().nullable(),
+    actor_role: z.string().optional(),
+  })
+  .strict();
+
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({}));
-    const role = req.headers.get("x-user-role") || body.actor_role || "DISPATCHER";
+    // 0. Authorization check: DISPATCHER, AUDITOR, or ADMIN
+    const authResult = enforceOperatorRole(req, ["DISPATCHER", "AUDITOR"]);
+    if ("errorResponse" in authResult) {
+      return authResult.errorResponse;
+    }
 
-    // 1. Authorization boundary
-    if (!isAuthorizedRecoveryOperator(role)) {
+    const rawJson = await req.json().catch(() => ({}));
+    const parseResult = RecoveryTransferPostSchema.safeParse(rawJson);
+    if (!parseResult.success) {
       return NextResponse.json(
-        { error: "Forbidden: Citizen role is not authorized to create recovery transfers." },
-        { status: 403 }
+        {
+          error: "Invalid request body or unknown fields provided.",
+          details: parseResult.error.format(),
+        },
+        { status: 400 }
       );
     }
+
+    const body = parseResult.data;
+    const role = authResult.session.role;
 
     const {
       facility_id,
@@ -91,20 +117,6 @@ export async function POST(req: NextRequest) {
       residual_pct = 0,
       notes,
     } = body;
-
-    if (!facility_id) {
-      return NextResponse.json(
-        { error: "facility_id is required." },
-        { status: 400 }
-      );
-    }
-
-    if (!collection_record_ids || !Array.isArray(collection_record_ids) || collection_record_ids.length === 0) {
-      return NextResponse.json(
-        { error: "At least one collection_record_id must be selected for the transfer batch." },
-        { status: 400 }
-      );
-    }
 
     // 2. Fetch destination facility
     const { data: partner, error: partnerErr } = await supabase

@@ -47,6 +47,7 @@ export default function AnalyzePage() {
   });
 
   const [aiProvider, setAiProvider] = useState<string | null>(null);
+  const [aiModel, setAiModel] = useState<string | null>(null);
   const [isManualFallback, setIsManualFallback] = useState(false);
   const [isLowConfidence, setIsLowConfidence] = useState(false);
   const [confidenceLevel, setConfidenceLevel] = useState<"high" | "medium" | "low">("medium");
@@ -301,6 +302,8 @@ export default function AnalyzePage() {
 
       if (responseJson.manual_fallback) {
         setIsManualFallback(true);
+        setAiProvider(null);
+        setAiModel(null);
         setInfoMessage(
           responseJson.message ||
             "Vision model provided a preliminary best-guess. Please verify item category below."
@@ -308,6 +311,7 @@ export default function AnalyzePage() {
       } else {
         setIsManualFallback(false);
         setAiProvider(responseJson.provider);
+        setAiModel(responseJson.model || null);
       }
 
       setFormData({
@@ -888,9 +892,14 @@ export default function AnalyzePage() {
                   </p>
                 </div>
                 {aiProvider && (
-                  <span className="inline-flex items-center gap-1 rounded-sm border border-[#d8ddd7] bg-[#f4f5f1] px-2 py-0.5 font-mono text-[10px] text-[#2e7d57]">
+                  <span className="inline-flex items-center gap-1 rounded-sm border border-[#bcdbc8] bg-[#edf5f0] px-2.5 py-1 font-mono text-[11px] font-semibold text-[#1e583c]">
                     <span className="h-1.5 w-1.5 rounded-full bg-[#2e7d57]" />
-                    AI: {aiProvider} ({confidenceLevel} conf)
+                    Analyzed by {aiProvider}{aiModel ? ` (${aiModel})` : ""} · {confidenceLevel.toUpperCase()}
+                  </span>
+                )}
+                {isManualFallback && (
+                  <span className="inline-flex items-center gap-1 rounded-sm border border-[#d8ddd7] bg-[#f4f5f1] px-2 py-0.5 font-mono text-[10px] text-[#6b746e]">
+                    Manual calibration mode · {confidenceLevel.toUpperCase()}
                   </span>
                 )}
               </div>

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { supabaseAdmin as supabase } from "@/lib/supabase";
+import { enforceOperatorRole } from "@/lib/operator-auth";
 import {
   isAuthorizedCollector,
   calculateRouteProgress,
@@ -286,22 +288,40 @@ export async function GET(req: NextRequest) {
   }
 }
 
+const CollectorRoutePatchSchema = z
+  .object({
+    route_id: z.string().uuid("route_id must be a valid UUID"),
+    action: z.enum(["start_route", "complete_route", "skip_stop"]),
+    notes: z.string().optional(),
+    actor_role: z.string().optional(),
+    request_id: z.string().uuid().optional(),
+    reason: z.string().optional(),
+  })
+  .strict();
+
 export async function PATCH(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { route_id, action, notes } = body;
-    const role = req.headers.get("x-user-role") || body.actor_role || "COLLECTOR";
+    // Enforce COLLECTOR or DISPATCHER role
+    const authResult = enforceOperatorRole(req, ["COLLECTOR", "DISPATCHER"]);
+    if ("errorResponse" in authResult) {
+      return authResult.errorResponse;
+    }
 
-    if (!isAuthorizedCollector(role)) {
+    const rawJson = await req.json().catch(() => ({}));
+    const parseResult = CollectorRoutePatchSchema.safeParse(rawJson);
+    if (!parseResult.success) {
       return NextResponse.json(
-        { error: "Forbidden: Citizen role is not authorized to modify routes." },
-        { status: 403 }
+        {
+          error: "Invalid request payload or unknown fields detected.",
+          details: parseResult.error.format(),
+        },
+        { status: 400 }
       );
     }
 
-    if (!route_id) {
-      return NextResponse.json({ error: "route_id is required." }, { status: 400 });
-    }
+    const body = parseResult.data;
+    const { route_id, action, notes } = body;
+    const role = authResult.session.role;
 
     if (action === "start_route") {
       const { data: updatedRoute, error } = await supabase

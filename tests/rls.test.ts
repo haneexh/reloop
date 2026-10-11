@@ -73,4 +73,26 @@ describe("PS-013 RLS Security Policies", () => {
     });
     assert.ok(error !== null, "Anonymous client direct insert with invalid weight must be rejected");
   });
+
+  it("generates cryptographically random 128-bit tracking tokens with required prefix", async () => {
+    const { generateSecureTrackingToken } = await import("../lib/operator-auth.ts");
+    const token1 = generateSecureTrackingToken();
+    const token2 = generateSecureTrackingToken();
+    assert.ok(token1.startsWith("RLP-"), "Token must start with RLP- prefix");
+    assert.ok(token1.length >= 36, "Token must have high entropy and length >= 36 chars");
+    assert.notEqual(token1, token2, "Consecutive generated tokens must be cryptographically distinct");
+  });
+
+  it("verifies operator HMAC-SHA256 signature tampering detection", async () => {
+    const { createSessionToken, verifySessionToken } = await import("../lib/operator-auth.ts");
+    const validToken = createSessionToken("DISPATCHER", true);
+    const verified = verifySessionToken(validToken);
+    assert.ok(verified !== null, "Valid signed token must verify successfully");
+    assert.equal(verified?.role, "DISPATCHER");
+
+    // Tampered payload
+    const tampered = validToken.slice(0, -4) + "AAAA";
+    const failedVerify = verifySessionToken(tampered);
+    assert.equal(failedVerify, null, "Tampered token must be rejected");
+  });
 });
