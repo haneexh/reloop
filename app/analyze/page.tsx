@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { evaluateItem, ITEM_TYPE_PRESETS } from "@/lib/decisionEngine";
 import { ProcessRail } from "@/components/ProcessRail";
+import { resizeAndCompressImage } from "@/lib/image-processing";
 
 type AssessmentCondition =
   "functional" | "cosmetic_damage" | "partially_working" | "severely_damaged";
@@ -19,7 +20,7 @@ interface ItemFormData {
   material_recoverable: boolean;
 }
 
-const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024; // 8MB
+const MAX_FILE_SIZE_BYTES = 12 * 1024 * 1024; // 12MB max raw input
 
 export default function AnalyzePage() {
   const router = useRouter();
@@ -54,6 +55,10 @@ export default function AnalyzePage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [notElectronicError, setNotElectronicError] = useState<string | null>(null);
+  const [imageHash, setImageHash] = useState<string | null>(null);
+  const [isCachedResult, setIsCachedResult] = useState<boolean>(false);
+  const [analysisStage, setAnalysisStage] = useState<"uploading" | "identifying" | "assessing">("uploading");
+  const [isCompressing, setIsCompressing] = useState<boolean>(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -172,8 +177,8 @@ export default function AnalyzePage() {
     );
   };
 
-  // Handle file selection
-  const handleFile = (file: File) => {
+  // Handle file selection with client-side compression (max 1024px, 0.8 JPEG quality)
+  const handleFile = async (file: File) => {
     setErrorMessage(null);
     setNotElectronicError(null);
 
@@ -183,15 +188,28 @@ export default function AnalyzePage() {
       return;
     }
 
-    // Validate size (8MB)
+    // Validate size (max 12MB raw input)
     if (file.size > MAX_FILE_SIZE_BYTES) {
-      setErrorMessage("Image file exceeds the 8MB limit. Please provide a smaller image.");
+      setErrorMessage("Image file exceeds the 12MB limit. Please provide a smaller image.");
       return;
     }
 
-    setSelectedFile(file);
-    const objectUrl = URL.createObjectURL(file);
-    setPreviewUrl(objectUrl);
+    try {
+      setIsCompressing(true);
+      // Resize & compress to max 1024px on long side and ~0.8 JPEG quality
+      const processed = await resizeAndCompressImage(file, 1024, 0.8);
+      setSelectedFile(processed.file);
+      setPreviewUrl(processed.previewUrl);
+      setBase64Url(processed.base64Data);
+      setImageHash(processed.sha256);
+      setIsCompressing(false);
+    } catch (err) {
+      console.warn("Client compression notice:", err);
+      setSelectedFile(file);
+      const objectUrl = URL.createObjectURL(file);
+      setPreviewUrl(objectUrl);
+      setIsCompressing(false);
+    }
   };
 
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
@@ -228,7 +246,7 @@ export default function AnalyzePage() {
     });
   };
 
-  // Step 1 -> 2: Upload to Supabase Storage & trigger Vision API
+  // Step 1 -> 2: Upload to Supabase Storage & trigger Vision API with progressive stages
   const handleStartAnalysis = async () => {
     if (!selectedFile) {
       setErrorMessage("Please capture or upload an item photograph first.");
@@ -236,12 +254,16 @@ export default function AnalyzePage() {
     }
 
     setStep("analyzing");
+    setAnalysisStage("uploading");
     setErrorMessage(null);
     setInfoMessage(null);
     setNotElectronicError(null);
 
+    const t1 = setTimeout(() => setAnalysisStage("identifying"), 1200);
+    const t2 = setTimeout(() => setAnalysisStage("assessing"), 3000);
+
     try {
-      // 1. Upload to Supabase Storage (bucket: 'item-photos')
+      // 1. Upload compressed file to Supabase Storage (bucket: 'item-photos')
       let publicImageUrl = previewUrl;
       try {
         const fileExt = selectedFile.name.split(".").pop() || "jpg";
@@ -269,8 +291,7 @@ export default function AnalyzePage() {
       }
 
       // 2. Prepare Base64 payload for Vision API
-      const base64Data = await fileToBase64(selectedFile);
-      setBase64Url(base64Data);
+      const base64Data = base64Url || (await fileToBase64(selectedFile));
 
       // 3. Call /api/analyze-image
       const res = await fetch("/api/analyze-image", {
@@ -278,12 +299,19 @@ export default function AnalyzePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           imageBase64: base64Data,
-          mediaType: selectedFile.type,
+          mediaType: selectedFile.type || "image/jpeg",
           imageUrl: publicImageUrl,
+          imageHash: imageHash,
         }),
       });
 
       const responseJson = await res.json();
+
+      if (res.status === 429) {
+        setErrorMessage(responseJson.error || "Rate limit reached. Please wait a moment before trying again.");
+        setStep("upload");
+        return;
+      }
 
       // Check strict electronics-only gate
       if (responseJson.not_electronic || (!responseJson.success && responseJson.not_electronic)) {
@@ -294,11 +322,13 @@ export default function AnalyzePage() {
         setStep("upload");
         return;
       }
+
       const parsedData = responseJson.data || {};
       const lowConf = Boolean(responseJson.manual_fallback || parsedData.is_low_confidence || parsedData.confidence === "low");
 
       setIsLowConfidence(lowConf);
       setConfidenceLevel(parsedData.confidence || (lowConf ? "low" : "medium"));
+      setIsCachedResult(Boolean(responseJson.cached));
 
       if (responseJson.manual_fallback) {
         setIsManualFallback(true);
@@ -330,18 +360,14 @@ export default function AnalyzePage() {
       });
 
       setStep("review");
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("Analysis error:", err);
-      setErrorMessage(null);
       setIsManualFallback(true);
-      setIsLowConfidence(true);
-      setConfidenceLevel("low");
-      setInfoMessage("Vision API unreachable. Switched to manual item verification mode.");
-      setFormData((prev) => ({
-        ...prev,
-        item_type: prev.item_type || "Other Electronics / Unlisted",
-      }));
+      setErrorMessage("Network issue contacting vision API. Switched to manual calibration mode.");
       setStep("review");
+    } finally {
+      clearTimeout(t1);
+      clearTimeout(t2);
     }
   };
 
@@ -799,10 +825,10 @@ export default function AnalyzePage() {
 
                   <div className="space-y-1">
                     <div className="text-sm font-semibold text-[#151817]">
-                      Capture or upload item photograph
+                      {isCompressing ? "Compressing & optimizing image..." : "Capture or upload item photograph"}
                     </div>
                     <div className="text-xs text-[#6b746e] font-mono">
-                      JPG, PNG, or WebP (max 8.00 MB)
+                      JPG, PNG, or WebP · Auto-compressed to 1024px for rapid scan
                     </div>
                   </div>
 
@@ -923,18 +949,73 @@ export default function AnalyzePage() {
       )}
 
       {/* ========================================================================= */}
-      {/* STEP 02: ANALYZING SPINNER */}
+      {/* STEP 02: ANALYZING SPINNER & MULTI-STAGE PROGRESS */}
       {/* ========================================================================= */}
       {step === "analyzing" && (
-        <div className="rounded-sm border border-[#d8ddd7] bg-white p-12 text-center space-y-4">
-          <div className="mx-auto h-7 w-7 animate-spin rounded-sm border-2 border-[#d8ddd7] border-t-[#2e7d57]"></div>
-          <div className="space-y-1">
+        <div className="rounded-sm border border-[#d8ddd7] bg-white p-8 text-center space-y-5">
+          {previewUrl && (
+            <div className="mx-auto h-36 w-36 overflow-hidden rounded-sm border border-[#d8ddd7] bg-[#f4f5f1] p-1">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={previewUrl} alt="Resized image" className="h-full w-full object-contain" />
+            </div>
+          )}
+
+          <div className="space-y-1.5 max-w-md mx-auto">
             <h2 className="text-sm font-semibold text-[#151817]">
-              Executing Multimodal Vision Assessment...
+              {analysisStage === "uploading" && "Uploading Compressed Image (max 1024px)..."}
+              {analysisStage === "identifying" && "Identifying Device & Specifications..."}
+              {analysisStage === "assessing" && "Assessing Physical Condition & Recovery Potential..."}
             </h2>
-            <p className="text-xs text-[#6b746e] font-mono">
-              Uploading photo to storage | Extracting item parameters and physical defects
+            <p className="text-xs text-[#6b746e]">
+              Vision model running rapid assessment with minimal thinking budget.
             </p>
+          </div>
+
+          {/* 3-Step Live Progress Indicator */}
+          <div className="flex items-center justify-center gap-2 text-xs font-mono max-w-sm mx-auto">
+            <span
+              className={`px-2 py-0.5 rounded-sm border ${
+                analysisStage === "uploading"
+                  ? "border-[#2e7d57] bg-[#edf5f0] font-bold text-[#1e583c]"
+                  : "border-[#d8ddd7] bg-[#f4f5f1] text-[#6b746e]"
+              }`}
+            >
+              1. Uploading
+            </span>
+            <span className="text-[#6b746e]">&rarr;</span>
+            <span
+              className={`px-2 py-0.5 rounded-sm border ${
+                analysisStage === "identifying"
+                  ? "border-[#2e7d57] bg-[#edf5f0] font-bold text-[#1e583c]"
+                  : "border-[#d8ddd7] bg-[#f4f5f1] text-[#6b746e]"
+              }`}
+            >
+              2. Identifying
+            </span>
+            <span className="text-[#6b746e]">&rarr;</span>
+            <span
+              className={`px-2 py-0.5 rounded-sm border ${
+                analysisStage === "assessing"
+                  ? "border-[#2e7d57] bg-[#edf5f0] font-bold text-[#1e583c]"
+                  : "border-[#d8ddd7] bg-[#f4f5f1] text-[#6b746e]"
+              }`}
+            >
+              3. Condition
+            </span>
+          </div>
+
+          <div className="w-full max-w-xs mx-auto bg-[#e9ede7] h-1.5 rounded-full overflow-hidden">
+            <div
+              className="bg-[#2e7d57] h-full transition-all duration-500 rounded-full"
+              style={{
+                width:
+                  analysisStage === "uploading"
+                    ? "30%"
+                    : analysisStage === "identifying"
+                    ? "68%"
+                    : "94%",
+              }}
+            />
           </div>
         </div>
       )}
@@ -1011,7 +1092,7 @@ export default function AnalyzePage() {
                 {aiProvider && aiProvider !== "sample-template" && (
                   <span className="inline-flex items-center gap-1 rounded-sm border border-[#bcdbc8] bg-[#edf5f0] px-2.5 py-1 font-mono text-[11px] font-semibold text-[#1e583c]">
                     <span className="h-1.5 w-1.5 rounded-full bg-[#2e7d57]" />
-                    Analyzed by {aiProvider}{aiModel ? ` (${aiModel})` : ""} · {confidenceLevel.toUpperCase()}
+                    Analyzed by {aiProvider}{aiModel ? ` (${aiModel})` : ""}{isCachedResult ? ", cached result" : ""} · {confidenceLevel.toUpperCase()}
                   </span>
                 )}
                 {aiProvider === "sample-template" && (

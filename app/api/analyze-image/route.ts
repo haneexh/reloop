@@ -1,37 +1,21 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60; // Vercel function timeout config
 
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import crypto from "crypto";
+import { supabaseAdmin as supabase } from "@/lib/supabase";
+import { checkRateLimit } from "@/lib/rate-limiter";
+import type { Json } from "@/types/database";
 
 const SYSTEM_PROMPT = `You are a circular economy assessor for RE:LOOP.
-RE:LOOP STRICTLY AND EXCLUSIVELY assesses physical electronic devices, electrical equipment, and electronics hardware/components.
-
-STEP 1: FIRST, inspect the photograph and classify whether it shows a physical electronic device or electronic component (anything that contains circuitry, a battery, a power cord/plug, an electric motor, or an electronic display/screen - for example: phones, laptops, PCs, monitors, CRT TVs, appliances with electronic controls, audio equipment, gaming consoles, cables, chargers, power supplies, circuit boards, cameras, printers, electronic tools, etc.).
-
-If the photo does NOT depict an electronic item (for example: clothing, apparel, shoes, wooden/fabric furniture, plants, food, humans, pets/animals, books, tableware, sports gear, non-electronic toys, plastic containers, paper products, etc.):
-You MUST return ONLY this JSON:
-{
-  "is_electronic": false,
-  "rejection_reason": "Non-electronic object detected (briefly name what is in the photo, e.g., 'clothing' or 'wooden chair' or 'houseplant')."
-}
-
-STEP 2: If the photo DOES depict an electronic device or component, set "is_electronic": true and return:
-{
-  "is_electronic": true,
-  "item_type": string,
-  "brand": string | null,
-  "estimated_age_years": number | null,
-  "condition": "functional" | "cosmetic_damage" | "partially_working" | "severely_damaged",
-  "condition_notes": string,
-  "material_recoverable": boolean,
-  "confidence": "high" | "medium" | "low"
-}
-
-CRITICAL RULES FOR ELECTRONICS:
-1. For electronic hardware, ALWAYS attempt your best guess for item_type, brand, and age, even for old, vintage, obscure, damaged, or partially obscured electronics.
-2. If you are uncertain of the exact electronic model or type, set "confidence": "low" and explain your best guess in "condition_notes", but still provide the closest matching electronic item_type.
-3. Be realistic with age: legacy electronics like CRT TVs and VCRs are typically 10-25 years old.
-4. Output raw JSON only. No markdown formatting, no conversational text.`;
+Classify physical electronic devices vs non-electronics.
+If NOT electronic (clothing, furniture, humans, food, etc), return:
+{"is_electronic":false,"rejection_reason":"non-electronic object detected"}
+If electronic, return:
+{"is_electronic":true,"item_type":"...","brand":"...","estimated_age_years":number,"condition":"functional"|"cosmetic_damage"|"partially_working"|"severely_damaged","condition_notes":"...","material_recoverable":true,"confidence":"high"|"medium"|"low"}
+Raw JSON only.`;
 
 export interface AssessmentResult {
   is_electronic: boolean;
@@ -45,6 +29,16 @@ export interface AssessmentResult {
   confidence: "high" | "medium" | "low";
   is_low_confidence: boolean;
 }
+
+// In-memory process cache keyed by image SHA-256 for sub-millisecond edge lookups
+const inMemoryCache = new Map<string, { result: AssessmentResult; provider: string; model: string }>();
+
+const RequestSchema = z.object({
+  imageBase64: z.string().min(10, "Image base64 data is required"),
+  mediaType: z.enum(["image/jpeg", "image/png", "image/webp"]).default("image/jpeg"),
+  imageUrl: z.string().optional().nullable(),
+  imageHash: z.string().optional().nullable(),
+});
 
 function extractJSON(text: string): AssessmentResult | null {
   if (!text) return null;
@@ -132,14 +126,12 @@ function extractJSON(text: string): AssessmentResult | null {
 }
 
 /**
- * 1. Google Gemini Vision API Call
- * Primary: GEMINI_MODEL or gemini-3.6-flash
- * Fallback: GEMINI_FALLBACK_MODEL or gemini-3.5-flash
+ * 1. Google Gemini Vision API Call with Thinking Controls & 12s Timeout
  */
 async function callGeminiVision(
   base64Data: string,
   mediaType: string,
-  isRetry = false
+  modelOverride?: string | null
 ): Promise<{ text: string; model: string } | { error: string }> {
   const apiKey =
     process.env.GEMINI_API_KEY ||
@@ -149,28 +141,42 @@ async function callGeminiVision(
     return { error: "GEMINI_API_KEY not configured or placeholder." };
   }
 
-  const prompt = isRetry
-    ? `${SYSTEM_PROMPT}\n\nIMPORTANT: Your previous output was not valid JSON. Return ONLY the raw JSON object, starting with { and ending with }.`
-    : SYSTEM_PROMPT;
-
-  const primaryModel = process.env.GEMINI_MODEL || "gemini-3.6-flash";
-  const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.5-flash";
+  // Model selection: primary defaults to gemini-3.5-flash-lite (fastest) with gemini-3.6-flash fallback
+  const primaryModel = modelOverride || process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
+  const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.6-flash";
   const models = Array.from(new Set([primaryModel, fallbackModel]));
 
   const errors: string[] = [];
 
   for (const model of models) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000); // 12-second provider timeout
+
     try {
+      const generationConfig: Record<string, unknown> = {
+        responseMimeType: "application/json",
+        temperature: 0.1,
+      };
+
+      // Set thinking to minimum for rapid classification
+      if (model.includes("gemini-3") || model.includes("gemini-2.5")) {
+        generationConfig.thinkingConfig = {
+          thinkingLevel: "MINIMAL",
+          includeThoughts: false,
+        };
+      }
+
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
           body: JSON.stringify({
             contents: [
               {
                 parts: [
-                  { text: prompt },
+                  { text: SYSTEM_PROMPT },
                   {
                     inlineData: {
                       mimeType: mediaType,
@@ -180,17 +186,14 @@ async function callGeminiVision(
                 ],
               },
             ],
-            generationConfig: {
-              responseMimeType: "application/json",
-              temperature: 0.2,
-            },
+            generationConfig,
           }),
         }
-      );
+      ).finally(() => clearTimeout(timeoutId));
 
       if (!res.ok) {
         const errText = await res.text();
-        const msg = `Gemini (${model}) ${res.status}: ${errText.slice(0, 200)}`;
+        const msg = `Gemini (${model}) ${res.status}: ${errText.slice(0, 180)}`;
         errors.push(msg);
         console.warn(msg);
         continue;
@@ -205,7 +208,11 @@ async function callGeminiVision(
       }
       errors.push(`Gemini (${model}): empty candidate response`);
     } catch (err) {
-      const msg = `Gemini (${model}) network exception: ${err instanceof Error ? err.message : String(err)}`;
+      clearTimeout(timeoutId);
+      const isAbort = err instanceof Error && err.name === "AbortError";
+      const msg = isAbort
+        ? `Gemini (${model}) timed out after 12s`
+        : `Gemini (${model}) network exception: ${err instanceof Error ? err.message : String(err)}`;
       errors.push(msg);
       console.warn(msg);
     }
@@ -215,31 +222,27 @@ async function callGeminiVision(
 }
 
 /**
- * 2. Anthropic Vision API Call
- * Primary: ANTHROPIC_MODEL or claude-sonnet-5-5
- * Fallback: claude-haiku-5-5
+ * 2. Anthropic Vision API Call with 12s Timeout
  */
 async function callAnthropicVision(
   base64Data: string,
-  mediaType: string,
-  isRetry = false
+  mediaType: string
 ): Promise<{ text: string; model: string } | { error: string }> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey || apiKey === "[SENSITIVE]") {
     return { error: "ANTHROPIC_API_KEY not configured or placeholder." };
   }
 
-  const prompt = isRetry
-    ? `${SYSTEM_PROMPT}\n\nIMPORTANT: Your previous output was not valid JSON. Return ONLY the raw JSON object, starting with { and ending with }.`
-    : SYSTEM_PROMPT;
-
-  const primaryModel = process.env.ANTHROPIC_MODEL || "claude-sonnet-5-5";
-  const fallbackModel = "claude-haiku-5-5";
+  const primaryModel = process.env.ANTHROPIC_MODEL || "claude-haiku-5-5";
+  const fallbackModel = "claude-sonnet-5-5";
   const models = Array.from(new Set([primaryModel, fallbackModel]));
 
-  let lastError = "";
+  const errors: string[] = [];
 
   for (const model of models) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+
     try {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
@@ -248,9 +251,10 @@ async function callAnthropicVision(
           "x-api-key": apiKey,
           "anthropic-version": "2023-06-01",
         },
+        signal: controller.signal,
         body: JSON.stringify({
           model,
-          max_tokens: 1000,
+          max_tokens: 600,
           messages: [
             {
               role: "user",
@@ -265,18 +269,19 @@ async function callAnthropicVision(
                 },
                 {
                   type: "text",
-                  text: prompt,
+                  text: SYSTEM_PROMPT,
                 },
               ],
             },
           ],
         }),
-      });
+      }).finally(() => clearTimeout(timeoutId));
 
       if (!res.ok) {
         const errText = await res.text();
-        lastError = `Anthropic (${model}) ${res.status}: ${errText.slice(0, 200)}`;
-        console.warn(lastError);
+        const msg = `Anthropic (${model}) ${res.status}: ${errText.slice(0, 180)}`;
+        errors.push(msg);
+        console.warn(msg);
         continue;
       }
 
@@ -288,41 +293,42 @@ async function callAnthropicVision(
         return { text, model };
       }
     } catch (err) {
-      lastError = `Anthropic (${model}) network exception: ${err instanceof Error ? err.message : String(err)}`;
-      console.warn(lastError);
+      clearTimeout(timeoutId);
+      const isAbort = err instanceof Error && err.name === "AbortError";
+      const msg = isAbort
+        ? `Anthropic (${model}) timed out after 12s`
+        : `Anthropic (${model}) error: ${err instanceof Error ? err.message : String(err)}`;
+      errors.push(msg);
+      console.warn(msg);
     }
   }
 
-  return { error: lastError || "All Anthropic endpoints failed." };
+  return { error: errors.join(" | ") || "All Anthropic endpoints failed." };
 }
 
 /**
- * 3. OpenAI Vision API Call
- * Primary: OPENAI_MODEL or gpt-4o
- * Fallback: gpt-4o-mini
+ * 3. OpenAI Vision API Call with 12s Timeout
  */
 async function callOpenAIVision(
   base64Data: string,
-  mediaType: string,
-  isRetry = false
+  mediaType: string
 ): Promise<{ text: string; model: string } | { error: string }> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey || apiKey === "[SENSITIVE]") {
     return { error: "OPENAI_API_KEY not configured or placeholder." };
   }
 
-  const prompt = isRetry
-    ? `${SYSTEM_PROMPT}\n\nIMPORTANT: Your previous output was not valid JSON. Return ONLY the raw JSON object, starting with { and ending with }.`
-    : SYSTEM_PROMPT;
-
   const imageUrl = `data:${mediaType};base64,${base64Data}`;
-  const primaryModel = process.env.OPENAI_MODEL || "gpt-4o";
-  const fallbackModel = "gpt-4o-mini";
+  const primaryModel = process.env.OPENAI_MODEL || "gpt-4o-mini";
+  const fallbackModel = "gpt-4o";
   const models = Array.from(new Set([primaryModel, fallbackModel]));
 
-  let lastError = "";
+  const errors: string[] = [];
 
   for (const model of models) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+
     try {
       const res = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
@@ -330,36 +336,29 @@ async function callOpenAIVision(
           "Content-Type": "application/json",
           Authorization: `Bearer ${apiKey}`,
         },
+        signal: controller.signal,
         body: JSON.stringify({
           model,
-          max_tokens: 1000,
+          max_tokens: 600,
           response_format: { type: "json_object" },
           messages: [
-            {
-              role: "system",
-              content: prompt,
-            },
+            { role: "system", content: SYSTEM_PROMPT },
             {
               role: "user",
               content: [
-                { type: "text", text: "Assess this item for circular economy re-use or recycling." },
-                {
-                  type: "image_url",
-                  image_url: {
-                    url: imageUrl,
-                    detail: "low",
-                  },
-                },
+                { type: "text", text: "Classify item." },
+                { type: "image_url", image_url: { url: imageUrl, detail: "low" } },
               ],
             },
           ],
         }),
-      });
+      }).finally(() => clearTimeout(timeoutId));
 
       if (!res.ok) {
         const errText = await res.text();
-        lastError = `OpenAI (${model}) ${res.status}: ${errText.slice(0, 200)}`;
-        console.warn(lastError);
+        const msg = `OpenAI (${model}) ${res.status}: ${errText.slice(0, 180)}`;
+        errors.push(msg);
+        console.warn(msg);
         continue;
       }
 
@@ -369,33 +368,138 @@ async function callOpenAIVision(
         return { text: content, model };
       }
     } catch (err) {
-      lastError = `OpenAI (${model}) network exception: ${err instanceof Error ? err.message : String(err)}`;
-      console.warn(lastError);
+      clearTimeout(timeoutId);
+      const isAbort = err instanceof Error && err.name === "AbortError";
+      const msg = isAbort
+        ? `OpenAI (${model}) timed out after 12s`
+        : `OpenAI (${model}) error: ${err instanceof Error ? err.message : String(err)}`;
+      errors.push(msg);
+      console.warn(msg);
     }
   }
 
-  return { error: lastError || "All OpenAI endpoints failed." };
+  return { error: errors.join(" | ") || "All OpenAI endpoints failed." };
 }
 
 export async function POST(req: NextRequest) {
   const startTime = Date.now();
   try {
-    const body = await req.json();
-    const { imageBase64, mediaType = "image/jpeg" } = body;
-
-    if (!imageBase64) {
-      return NextResponse.json({ error: "Image data (imageBase64) is required." }, { status: 400 });
+    // 1. IP Rate Limiting (10 scans per 60 seconds per IP)
+    const rateCheck = checkRateLimit(req, 10, 60);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        {
+          error: "Rate limit exceeded. Maximum 10 scans per minute per IP.",
+          retry_after_secs: rateCheck.resetInSecs,
+        },
+        {
+          status: 429,
+          headers: { "Retry-After": String(rateCheck.resetInSecs) },
+        }
+      );
     }
 
+    // 2. Body Read & Size Check (Max 5 MB payload)
+    const rawText = await req.text();
+    if (rawText.length > 5 * 1024 * 1024) {
+      return NextResponse.json(
+        { error: "Payload exceeds 5MB size limit. Please compress image before upload." },
+        { status: 413 }
+      );
+    }
+
+    let parsedBody: unknown;
+    try {
+      parsedBody = JSON.parse(rawText);
+    } catch {
+      return NextResponse.json({ error: "Malformed JSON payload." }, { status: 400 });
+    }
+
+    // 3. Schema Validation & MIME Check
+    const validation = RequestSchema.safeParse(parsedBody);
+    if (!validation.success) {
+      return NextResponse.json(
+        {
+          error: "Invalid request payload or unsupported media type.",
+          details: validation.error.format(),
+        },
+        { status: 400 }
+      );
+    }
+
+    const { imageBase64, mediaType } = validation.data;
     const cleanBase64 = imageBase64.replace(/^data:[^;]+;base64,/, "").trim();
 
-    const providerAttempts: Array<{ provider: string; model?: string; status: "success" | "error"; error?: string }> = [];
+    if (!cleanBase64 || cleanBase64.length < 50) {
+      return NextResponse.json({ error: "Invalid or empty image base64 data." }, { status: 400 });
+    }
 
+    // 4. Compute Image SHA-256 for result caching
+    const imageHash =
+      validation.data.imageHash ||
+      crypto.createHash("sha256").update(Buffer.from(cleanBase64, "base64")).digest("hex");
+
+    // 5. Result Caching: Check in-memory cache first
+    const memCache = inMemoryCache.get(imageHash);
+    if (memCache) {
+      return NextResponse.json({
+        success: true,
+        cached: true,
+        provider: memCache.provider,
+        model: memCache.model,
+        latency_ms: Date.now() - startTime,
+        data: memCache.result,
+        provider_attempts: [{ provider: memCache.provider, model: memCache.model, status: "success", cached: true }],
+      });
+    }
+
+    // Check persistent Supabase cache (event_log)
+    try {
+      const { data: dbCache } = await supabase
+        .from("event_log")
+        .select("payload_json")
+        .eq("event_type", "AI_SCAN_CACHE")
+        .contains("payload_json", { image_hash: imageHash })
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (dbCache?.payload_json && typeof dbCache.payload_json === "object" && "result" in dbCache.payload_json) {
+        const cachedPayload = dbCache.payload_json as Record<string, unknown>;
+        const cachedResult = cachedPayload.result as AssessmentResult;
+        const cachedProvider = typeof cachedPayload.provider === "string" ? cachedPayload.provider : "gemini";
+        const cachedModel = typeof cachedPayload.model === "string" ? cachedPayload.model : "cached";
+
+        // Seed into memory cache
+        inMemoryCache.set(imageHash, {
+          result: cachedResult,
+          provider: cachedProvider,
+          model: cachedModel,
+        });
+
+        return NextResponse.json({
+          success: true,
+          cached: true,
+          provider: cachedProvider,
+          model: cachedModel,
+          latency_ms: Date.now() - startTime,
+          data: cachedResult,
+          provider_attempts: [
+            { provider: cachedProvider, model: cachedModel, status: "success", cached: true },
+          ],
+        });
+      }
+    } catch (cacheErr) {
+      console.warn("[AI Cache] Supabase lookup notice:", cacheErr);
+    }
+
+    // 6. Provider Pipeline Execution
+    const modelOverride = req.headers.get("x-model-override");
+    const providerAttempts: Array<{ provider: string; model?: string; status: "success" | "error"; error?: string }> = [];
     let successResult: { text: string; provider: string; model: string } | null = null;
 
-    // 1. Try Gemini Vision (Primary: gemini-3.5-flash)
-    console.log("[AI Vision] Attempting Gemini...");
-    const geminiRes = await callGeminiVision(cleanBase64, mediaType);
+    // 1. Gemini Vision
+    const geminiRes = await callGeminiVision(cleanBase64, mediaType, modelOverride);
     if ("text" in geminiRes) {
       providerAttempts.push({ provider: "gemini", model: geminiRes.model, status: "success" });
       successResult = { text: geminiRes.text, provider: "gemini", model: geminiRes.model };
@@ -403,9 +507,8 @@ export async function POST(req: NextRequest) {
       providerAttempts.push({ provider: "gemini", status: "error", error: geminiRes.error });
     }
 
-    // 2. Try Anthropic Vision (Fallback: claude-sonnet-5-5)
+    // 2. Anthropic Vision Fallback
     if (!successResult) {
-      console.log("[AI Vision] Attempting Anthropic...");
       const anthropicRes = await callAnthropicVision(cleanBase64, mediaType);
       if ("text" in anthropicRes) {
         providerAttempts.push({ provider: "anthropic", model: anthropicRes.model, status: "success" });
@@ -415,9 +518,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 3. Try OpenAI Vision (Fallback: gpt-4o)
+    // 3. OpenAI Vision Fallback
     if (!successResult) {
-      console.log("[AI Vision] Attempting OpenAI...");
       const openAiRes = await callOpenAIVision(cleanBase64, mediaType);
       if ("text" in openAiRes) {
         providerAttempts.push({ provider: "openai", model: openAiRes.model, status: "success" });
@@ -429,7 +531,7 @@ export async function POST(req: NextRequest) {
 
     const latencyMs = Date.now() - startTime;
 
-    // If an AI provider succeeded, parse result
+    // 7. Parse and Validate Output
     if (successResult) {
       const parsed = extractJSON(successResult.text);
       if (parsed) {
@@ -447,8 +549,36 @@ export async function POST(req: NextRequest) {
           });
         }
 
+        // Cache genuine AI assessment result into in-memory cache and Supabase event_log
+        inMemoryCache.set(imageHash, {
+          result: parsed,
+          provider: successResult.provider,
+          model: successResult.model,
+        });
+
+        try {
+          await supabase
+            .from("event_log")
+            .insert({
+              event_type: "AI_SCAN_CACHE",
+              entity_type: "scan",
+              entity_id: "00000000-0000-0000-0000-000000000000",
+              actor_role: "SYSTEM",
+              payload_json: {
+                image_hash: imageHash,
+                provider: successResult.provider,
+                model: successResult.model,
+                result: parsed,
+                timestamp: new Date().toISOString(),
+              } as unknown as Json,
+            });
+        } catch (dbErr) {
+          console.warn("[AI Cache] Persistence notice:", dbErr);
+        }
+
         return NextResponse.json({
           success: true,
+          cached: false,
           provider: successResult.provider,
           model: successResult.model,
           latency_ms: latencyMs,
@@ -459,8 +589,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // All providers failed or were unconfigured: explicitly report fallback and error trail
-    console.warn("[AI Vision] All providers failed. Returning manual fallback. Attempts:", providerAttempts);
+    // 8. Explicit fallback if all providers failed
     return NextResponse.json({
       success: true,
       provider: "manual_fallback",
@@ -482,7 +611,6 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     const latencyMs = Date.now() - startTime;
-    console.error("Vision assessment route error:", error);
     return NextResponse.json(
       {
         success: false,
