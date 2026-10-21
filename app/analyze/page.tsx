@@ -441,7 +441,9 @@ export default function AnalyzePage() {
     setStep("upload");
   };
 
-  const handleUseSampleItem = (sampleType: "laptop" | "phone" | "tv" = "laptop") => {
+  const handleUseSampleItem = (
+    sampleType: "laptop" | "phone" | "tv" | "phone_repair" | "tv_donate" | "laptop_reuse" = "laptop"
+  ) => {
     stopCamera();
     setErrorMessage(null);
     setNotElectronicError(null);
@@ -449,27 +451,69 @@ export default function AnalyzePage() {
     setAiProvider("sample-template");
 
     if (sampleType === "phone") {
-      setInfoMessage("Sample hardware item loaded: Samsung Galaxy Smartphone (Sample). Verify specifications below.");
+      setInfoMessage("Demo dataset item loaded: Samsung Galaxy Smartphone (Resell pathway). Verify specifications below.");
       setFormData({
         item_type: "smartphone",
         brand: "Samsung Galaxy",
         estimated_age_years: "2.0",
         condition: "functional",
-        condition_notes: "Sample phone: fully working screen, intact battery, minor cosmetic wear on back panel.",
+        condition_notes: "Demo dataset: functional phone with intact screen and good battery health. Optimal for direct resale.",
         material_recoverable: true,
       });
       const sampleImg = "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=800&q=80";
       setPreviewUrl(sampleImg);
       setUploadedPublicUrl(sampleImg);
       setBase64Url(sampleImg);
+    } else if (sampleType === "phone_repair") {
+      setInfoMessage("Demo dataset item loaded: Samsung Galaxy Smartphone (Repair pathway). Verify specifications below.");
+      setFormData({
+        item_type: "smartphone",
+        brand: "Samsung Galaxy",
+        estimated_age_years: "2.0",
+        condition: "partially_working",
+        condition_notes: "Demo dataset: broken charging port and worn battery. Highly viable for local authorized repair.",
+        material_recoverable: true,
+      });
+      const sampleImg = "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=800&q=80";
+      setPreviewUrl(sampleImg);
+      setUploadedPublicUrl(sampleImg);
+      setBase64Url(sampleImg);
+    } else if (sampleType === "laptop_reuse") {
+      setInfoMessage("Demo dataset item loaded: Sony VAIO Laptop (Reuse pathway). Verify specifications below.");
+      setFormData({
+        item_type: "laptop",
+        brand: "Sony",
+        estimated_age_years: "6.0",
+        condition: "functional",
+        condition_notes: "Demo dataset: older functional laptop suitable for community reuse, basic web browsing, or digital literacy centers.",
+        material_recoverable: true,
+      });
+      const sampleImg = "https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?auto=format&fit=crop&w=800&q=80";
+      setPreviewUrl(sampleImg);
+      setUploadedPublicUrl(sampleImg);
+      setBase64Url(sampleImg);
+    } else if (sampleType === "tv_donate") {
+      setInfoMessage("Demo dataset item loaded: Sony Trinitron CRT TV (Donate pathway). Verify specifications below.");
+      setFormData({
+        item_type: "crt_tv",
+        brand: "Sony Trinitron",
+        estimated_age_years: "10.0",
+        condition: "functional",
+        condition_notes: "Demo dataset: working CRT television in good condition, suitable for community donation or institutional reuse.",
+        material_recoverable: true,
+      });
+      const sampleImg = "https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?auto=format&fit=crop&w=800&q=80";
+      setPreviewUrl(sampleImg);
+      setUploadedPublicUrl(sampleImg);
+      setBase64Url(sampleImg);
     } else if (sampleType === "tv") {
-      setInfoMessage("Sample hardware item loaded: Sony Trinitron CRT Television (Sample). Verify specifications below.");
+      setInfoMessage("Demo dataset item loaded: Sony Trinitron CRT Television (Recycle pathway). Verify specifications below.");
       setFormData({
         item_type: "crt_tv",
         brand: "Sony Trinitron",
         estimated_age_years: "18.0",
         condition: "severely_damaged",
-        condition_notes: "Sample CRT TV: heavy vintage display, power cord present, glass envelope intact, high material recovery value.",
+        condition_notes: "Demo dataset: heavy vintage display with damaged circuitry, glass envelope intact, high material recycling yield.",
         material_recoverable: true,
       });
       const sampleImg = "https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?auto=format&fit=crop&w=800&q=80";
@@ -477,13 +521,13 @@ export default function AnalyzePage() {
       setUploadedPublicUrl(sampleImg);
       setBase64Url(sampleImg);
     } else {
-      setInfoMessage("Sample hardware item loaded: Lenovo ThinkPad Laptop (Sample). Verify specifications below.");
+      setInfoMessage("Demo dataset item loaded: Lenovo ThinkPad Laptop (Refurbish pathway). Verify specifications below.");
       setFormData({
         item_type: "laptop",
         brand: "Lenovo ThinkPad",
         estimated_age_years: "3.5",
         condition: "cosmetic_damage",
-        condition_notes: "Sample laptop: minor scuffs on outer casing and hinge wear. Display, keyboard, and motherboard fully operational.",
+        condition_notes: "Demo dataset: minor scuffs on outer casing and hinge wear. Display, keyboard, and motherboard fully operational for refurbishing.",
         material_recoverable: true,
       });
       const sampleImg = "https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?auto=format&fit=crop&w=800&q=80";
@@ -792,28 +836,55 @@ export default function AnalyzePage() {
                       <span>Browse Files</span>
                     </button>
 
-                    <div className="flex flex-wrap items-center justify-center gap-2">
-                      <span className="text-[11px] font-mono text-[#6b746e]">Try sample item:</span>
+                    <div className="flex flex-wrap items-center justify-center gap-1.5 pt-1">
+                      <span className="text-[11px] font-mono text-[#6b746e]">Demo dataset:</span>
                       <button
                         type="button"
                         onClick={() => handleUseSampleItem("phone")}
-                        className="inline-flex items-center gap-1 rounded-sm border border-[#d8ddd7] bg-white px-2.5 py-1.5 text-xs font-medium text-[#151817] transition-colors hover:bg-[#e9ede7]"
+                        className="inline-flex items-center gap-1 rounded-sm border border-[#d8ddd7] bg-white px-2 py-1 text-[11px] font-medium text-[#151817] transition-colors hover:bg-[#e9ede7]"
+                        title="Demo item for direct Resell"
                       >
-                        <span>Phone (Sample)</span>
+                        <span>Resell</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleUseSampleItem("phone_repair")}
+                        className="inline-flex items-center gap-1 rounded-sm border border-[#d8ddd7] bg-white px-2 py-1 text-[11px] font-medium text-[#151817] transition-colors hover:bg-[#e9ede7]"
+                        title="Demo item for Repair"
+                      >
+                        <span>Repair</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => handleUseSampleItem("laptop")}
-                        className="inline-flex items-center gap-1 rounded-sm border border-[#d8ddd7] bg-white px-2.5 py-1.5 text-xs font-medium text-[#151817] transition-colors hover:bg-[#e9ede7]"
+                        className="inline-flex items-center gap-1 rounded-sm border border-[#d8ddd7] bg-white px-2 py-1 text-[11px] font-medium text-[#151817] transition-colors hover:bg-[#e9ede7]"
+                        title="Demo item for Refurbish"
                       >
-                        <span>Laptop (Sample)</span>
+                        <span>Refurbish</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleUseSampleItem("laptop_reuse")}
+                        className="inline-flex items-center gap-1 rounded-sm border border-[#d8ddd7] bg-white px-2 py-1 text-[11px] font-medium text-[#151817] transition-colors hover:bg-[#e9ede7]"
+                        title="Demo item for Reuse"
+                      >
+                        <span>Reuse</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleUseSampleItem("tv_donate")}
+                        className="inline-flex items-center gap-1 rounded-sm border border-[#d8ddd7] bg-white px-2 py-1 text-[11px] font-medium text-[#151817] transition-colors hover:bg-[#e9ede7]"
+                        title="Demo item for Donate"
+                      >
+                        <span>Donate</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => handleUseSampleItem("tv")}
-                        className="inline-flex items-center gap-1 rounded-sm border border-[#d8ddd7] bg-white px-2.5 py-1.5 text-xs font-medium text-[#151817] transition-colors hover:bg-[#e9ede7]"
+                        className="inline-flex items-center gap-1 rounded-sm border border-[#d8ddd7] bg-white px-2 py-1 text-[11px] font-medium text-[#151817] transition-colors hover:bg-[#e9ede7]"
+                        title="Demo item for Recycle"
                       >
-                        <span>TV / Display (Sample)</span>
+                        <span>Recycle</span>
                       </button>
                     </div>
                   </div>
@@ -937,15 +1008,22 @@ export default function AnalyzePage() {
                     Confirm or correct the vision model extractions before committing to database.
                   </p>
                 </div>
-                {aiProvider && (
+                {aiProvider && aiProvider !== "sample-template" && (
                   <span className="inline-flex items-center gap-1 rounded-sm border border-[#bcdbc8] bg-[#edf5f0] px-2.5 py-1 font-mono text-[11px] font-semibold text-[#1e583c]">
                     <span className="h-1.5 w-1.5 rounded-full bg-[#2e7d57]" />
                     Analyzed by {aiProvider}{aiModel ? ` (${aiModel})` : ""} · {confidenceLevel.toUpperCase()}
                   </span>
                 )}
+                {aiProvider === "sample-template" && (
+                  <span className="inline-flex items-center gap-1 rounded-sm border border-[#d8ddd7] bg-[#f4f5f1] px-2.5 py-1 font-mono text-[11px] font-medium text-[#6b746e]">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#6b746e]" />
+                    Demo dataset template (Manual verification)
+                  </span>
+                )}
                 {isManualFallback && (
-                  <span className="inline-flex items-center gap-1 rounded-sm border border-[#d8ddd7] bg-[#f4f5f1] px-2 py-0.5 font-mono text-[10px] text-[#6b746e]">
-                    Manual calibration mode · {confidenceLevel.toUpperCase()}
+                  <span className="inline-flex items-center gap-1 rounded-sm border border-[#f3d2bb] bg-[#fcf5ed] px-2.5 py-1 font-mono text-[11px] font-semibold text-[#964215]">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#964215]" />
+                    AI analysis unavailable, using guided manual entry
                   </span>
                 )}
               </div>

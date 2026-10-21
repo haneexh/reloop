@@ -133,8 +133,8 @@ function extractJSON(text: string): AssessmentResult | null {
 
 /**
  * 1. Google Gemini Vision API Call
- * Primary: GEMINI_MODEL or gemini-3.5-flash
- * Fallback: gemini-3.6-flash (current GA replacement for deprecated gemini-2.0/2.5)
+ * Primary: GEMINI_MODEL or gemini-3.6-flash
+ * Fallback: GEMINI_FALLBACK_MODEL or gemini-3.5-flash
  */
 async function callGeminiVision(
   base64Data: string,
@@ -153,11 +153,11 @@ async function callGeminiVision(
     ? `${SYSTEM_PROMPT}\n\nIMPORTANT: Your previous output was not valid JSON. Return ONLY the raw JSON object, starting with { and ending with }.`
     : SYSTEM_PROMPT;
 
-  const primaryModel = process.env.GEMINI_MODEL || "gemini-3.5-flash";
-  const fallbackModel = "gemini-3.6-flash";
+  const primaryModel = process.env.GEMINI_MODEL || "gemini-3.6-flash";
+  const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.5-flash";
   const models = Array.from(new Set([primaryModel, fallbackModel]));
 
-  let lastError = "";
+  const errors: string[] = [];
 
   for (const model of models) {
     try {
@@ -190,8 +190,9 @@ async function callGeminiVision(
 
       if (!res.ok) {
         const errText = await res.text();
-        lastError = `Gemini (${model}) ${res.status}: ${errText.slice(0, 200)}`;
-        console.warn(lastError);
+        const msg = `Gemini (${model}) ${res.status}: ${errText.slice(0, 200)}`;
+        errors.push(msg);
+        console.warn(msg);
         continue;
       }
 
@@ -202,13 +203,15 @@ async function callGeminiVision(
       if (text) {
         return { text, model };
       }
+      errors.push(`Gemini (${model}): empty candidate response`);
     } catch (err) {
-      lastError = `Gemini (${model}) network exception: ${err instanceof Error ? err.message : String(err)}`;
-      console.warn(lastError);
+      const msg = `Gemini (${model}) network exception: ${err instanceof Error ? err.message : String(err)}`;
+      errors.push(msg);
+      console.warn(msg);
     }
   }
 
-  return { error: lastError || "All Gemini endpoints failed." };
+  return { error: errors.join(" | ") || "All Gemini endpoints failed." };
 }
 
 /**
