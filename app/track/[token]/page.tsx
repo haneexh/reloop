@@ -41,6 +41,11 @@ interface TrackData {
 
 const TIMELINE_STAGES = [
   {
+    key: "scan_assessed",
+    label: "Hardware identified & assessed",
+    description: "Item classified via AI scan and deterministic circular pathway evaluation.",
+  },
+  {
     key: "pending",
     label: "Pickup requested",
     description: "Request logged and placed in neighborhood dispatch queue.",
@@ -57,7 +62,7 @@ const TIMELINE_STAGES = [
   },
   {
     key: "collected",
-    label: "Collected",
+    label: "Collected at doorstep",
     description: "Items received and QR pass verified at your doorstep.",
   },
   {
@@ -136,22 +141,22 @@ export default function TrackRequestPage({
   const getStageIndex = (status: string, hasVerifiedRecord: boolean) => {
     switch (status) {
       case "pending":
-        return 0;
-      case "scheduled":
         return 1;
-      case "assigned":
+      case "scheduled":
         return 2;
+      case "assigned":
+        return 3;
       case "collected":
-        return hasVerifiedRecord ? 4 : 3;
+        return hasVerifiedRecord ? 5 : 4;
       case "weighed":
       case "sorted":
-        return 4;
-      case "sent_to_facility":
         return 5;
-      case "recovered":
+      case "sent_to_facility":
         return 6;
+      case "recovered":
+        return 7;
       default:
-        return 0;
+        return 1;
     }
   };
 
@@ -190,13 +195,13 @@ export default function TrackRequestPage({
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="font-mono text-sm font-bold bg-[#f4f5f1] border border-[#d8ddd7] px-3 py-1.5 rounded-[3px] text-[#151817]">
+            <span className="font-mono text-sm font-bold bg-[#f4f5f1] border border-[#d8ddd7] px-3 py-1.5 rounded-[2px] text-[#151817]">
               {token}
             </span>
             <button
               type="button"
               onClick={handleCopyCode}
-              className="rounded-[3px] border border-[#d8ddd7] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#151817] hover:bg-[#f4f5f1] transition-colors"
+              className="rounded-[2px] border border-[#d8ddd7] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#151817] hover:bg-[#f4f5f1] transition-colors"
             >
               {copiedToken ? "Copied!" : "Copy"}
             </button>
@@ -299,7 +304,7 @@ export default function TrackRequestPage({
                   return (
                     <div
                       key={st.key}
-                      className={`rounded-[3px] border p-4 flex items-start gap-4 transition-colors ${
+                      className={`rounded-[2px] border p-4 flex items-start gap-4 transition-colors ${
                         isCurrent
                           ? "border-[#2e7d57] bg-[#edf5f0]"
                           : isCompleted
@@ -391,7 +396,7 @@ export default function TrackRequestPage({
 
               {/* Digital Scale Recorded Weight (if verified) */}
               {data.verifiedRecords && data.verifiedRecords.length > 0 && (
-                <div className="rounded-[3px] border border-[#2e7d57] bg-[#edf5f0] p-4 text-xs text-[#1e583c] space-y-2">
+                <div className="rounded-[2px] border border-[#2e7d57] bg-[#edf5f0] p-4 text-xs text-[#1e583c] space-y-2">
                   <div className="flex items-center justify-between font-bold">
                     <span className="flex items-center gap-1.5">
                       <span>✓</span> Digital Scale Audit Complete
@@ -422,7 +427,7 @@ export default function TrackRequestPage({
 
             {/* Service Receipt / Handover Pass (Right 5 cols) */}
             <div className="md:col-span-5 space-y-4">
-              <div className="rounded-[3px] border border-[#d8ddd7] bg-white p-5 space-y-4 shadow-sm">
+              <div className="rounded-[2px] border border-[#d8ddd7] bg-white p-5 space-y-4 shadow-sm">
                 <div className="flex items-center justify-between border-b border-[#d8ddd7] pb-3">
                   <div className="flex items-center gap-1.5 font-display font-bold text-xs uppercase text-[#151817]">
                     <span className="h-2 w-2 rounded-sm bg-[#2e7d57]" />
@@ -435,7 +440,7 @@ export default function TrackRequestPage({
 
                 {qrCodeUrl && (
                   <div className="text-center space-y-2">
-                    <div className="inline-block p-2 bg-white border border-[#d8ddd7] rounded-[3px]">
+                    <div className="inline-block p-2 bg-white border border-[#d8ddd7] rounded-[2px]">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={qrCodeUrl}
@@ -499,7 +504,7 @@ export default function TrackRequestPage({
               </div>
 
               {/* Privacy badge */}
-              <div className="rounded-[3px] border border-[#d8ddd7] bg-[#f4f5f1] p-3 text-[11px] text-[#6b746e] leading-relaxed">
+              <div className="rounded-[2px] border border-[#d8ddd7] bg-[#f4f5f1] p-3 text-[11px] text-[#6b746e] leading-relaxed">
                 <strong className="text-[#151817]">Privacy Protection: </strong>
                 Public tracking view displays masked locality and status milestones only. Personal contact numbers and exact street addresses are protected.
               </div>

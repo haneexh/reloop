@@ -2,19 +2,18 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
+import { ChevronDown, Menu, X, ArrowRight } from "lucide-react";
 
 export function Navigation() {
   const pathname = usePathname();
-  const router = useRouter();
 
   // Operations dropdown state
   const [isOpsOpen, setIsOpsOpen] = useState(false);
   // Mobile drawer state
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  // Track modal / popover state
-  const [isTrackOpen, setIsTrackOpen] = useState(false);
-  const [trackTokenInput, setTrackTokenInput] = useState("");
+  // Demo mode active state
+  const [isDemoActive, setIsDemoActive] = useState(false);
 
   const opsDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -22,8 +21,36 @@ export function Navigation() {
   useEffect(() => {
     setIsOpsOpen(false);
     setIsMobileMenuOpen(false);
-    setIsTrackOpen(false);
   }, [pathname]);
+
+  // Sync demo mode status with localStorage & custom event
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setIsDemoActive(window.localStorage.getItem("reloop_demo_active") === "true");
+    }
+
+    const handleToggle = (e: Event) => {
+      const customEvent = e as CustomEvent<{ active?: boolean }>;
+      if (typeof customEvent.detail?.active === "boolean") {
+        setIsDemoActive(customEvent.detail.active);
+      } else {
+        setIsDemoActive((prev) => !prev);
+      }
+    };
+    window.addEventListener("reloop-demo-toggle", handleToggle);
+    return () => window.removeEventListener("reloop-demo-toggle", handleToggle);
+  }, []);
+
+  const handleToggleDemo = () => {
+    const next = !isDemoActive;
+    setIsDemoActive(next);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("reloop_demo_active", next ? "true" : "false");
+      window.dispatchEvent(
+        new CustomEvent("reloop-demo-toggle", { detail: { active: next } })
+      );
+    }
+  };
 
   // Click outside listener for operations dropdown
   useEffect(() => {
@@ -39,15 +66,6 @@ export function Navigation() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleTrackSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!trackTokenInput.trim()) return;
-    const cleanToken = trackTokenInput.trim().toUpperCase();
-    setIsTrackOpen(false);
-    setTrackTokenInput("");
-    router.push(`/track/${cleanToken}`);
-  };
-
   const isOpsActive =
     pathname.startsWith("/dispatch") ||
     pathname.startsWith("/collector") ||
@@ -56,7 +74,7 @@ export function Navigation() {
   return (
     <header className="sticky top-0 z-40 w-full border-b border-[#d8ddd7] bg-[#f4f5f1]/95 backdrop-blur-sm">
       <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-4 sm:px-6">
-        {/* Left: Brand Identity */}
+        {/* Left: Brand Identity & Public Navigation */}
         <div className="flex items-center gap-6 sm:gap-8">
           <Link
             href="/"
@@ -67,7 +85,18 @@ export function Navigation() {
           </Link>
 
           {/* Desktop Public Navigation */}
-          <nav className="hidden md:flex items-center gap-6 text-xs font-medium text-[#6b746e]">
+          <nav className="hidden md:flex items-center gap-5 text-xs font-medium text-[#6b746e]">
+            <Link
+              href="/analyze"
+              className={`transition-colors hover:text-[#151817] ${
+                pathname.startsWith("/analyze")
+                  ? "text-[#151817] font-semibold border-b-2 border-[#2e7d57] pb-1 -mb-1"
+                  : ""
+              }`}
+            >
+              Scan Item
+            </Link>
+
             <Link
               href="/request"
               className={`transition-colors hover:text-[#151817] ${
@@ -87,14 +116,7 @@ export function Navigation() {
                   : ""
               }`}
             >
-              Track Pickup
-            </Link>
-
-            <Link
-              href="/#how-it-works"
-              className="transition-colors hover:text-[#151817]"
-            >
-              How It Works
+              Track
             </Link>
 
             <Link
@@ -110,8 +132,27 @@ export function Navigation() {
           </nav>
         </div>
 
-        {/* Right: Operations Gateway & CTAs */}
-        <div className="flex items-center gap-3">
+        {/* Right: Demo Mode Toggle, Operations Gateway & CTA */}
+        <div className="flex items-center gap-2.5">
+          {/* Rectangular Demo Mode Toggle */}
+          <button
+            type="button"
+            onClick={handleToggleDemo}
+            title="Toggle Judge & Evaluator Demonstration Mode"
+            className={`inline-flex items-center gap-1.5 rounded-[2px] border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+              isDemoActive
+                ? "border-[#2e7d57] bg-[#edf5f0] text-[#1e583c] font-semibold"
+                : "border-[#d8ddd7] bg-white text-[#6b746e] hover:text-[#151817] hover:bg-[#e9ede7]"
+            }`}
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-sm ${
+                isDemoActive ? "bg-[#2e7d57]" : "bg-[#a1aaa4]"
+              }`}
+            />
+            <span>Demo Mode</span>
+          </button>
+
           {/* Operations Dropdown (Desktop) */}
           <div className="relative hidden md:block" ref={opsDropdownRef}>
             <button
@@ -119,19 +160,19 @@ export function Navigation() {
               type="button"
               aria-expanded={isOpsOpen}
               aria-haspopup="true"
-              className={`inline-flex items-center gap-1.5 rounded-[3px] border px-3 py-1.5 text-xs font-medium transition-colors ${
+              className={`inline-flex items-center gap-1.5 rounded-[2px] border px-3 py-1.5 text-xs font-medium transition-colors ${
                 isOpsActive
                   ? "border-[#2e7d57] bg-[#e6f2e8] text-[#173d2c]"
                   : "border-[#d8ddd7] bg-white text-[#151817] hover:bg-[#e9ede7]"
               }`}
             >
-              <span className="h-1.5 w-1.5 rounded-full bg-[#2e7d57]" />
+              <span className="h-1.5 w-1.5 rounded-sm bg-[#2e7d57]" />
               <span>Operations</span>
-              <span className="text-[10px] text-[#6b746e]">▾</span>
+              <ChevronDown className="h-3 w-3 text-[#6b746e]" />
             </button>
 
             {isOpsOpen && (
-              <div className="absolute right-0 mt-2 w-56 rounded-[3px] border border-[#d8ddd7] bg-white p-1.5 shadow-sm">
+              <div className="absolute right-0 mt-2 w-56 rounded-[2px] border border-[#d8ddd7] bg-white p-1.5 shadow-sm">
                 <div className="px-2.5 py-1.5 border-b border-[#d8ddd7] mb-1">
                   <span className="text-[10px] font-mono uppercase tracking-wider text-[#6b746e] block">
                     Operations Portal
@@ -165,7 +206,7 @@ export function Navigation() {
           {/* Quick Primary Citizen Action */}
           <Link
             href="/request"
-            className="inline-flex items-center justify-center rounded-[3px] bg-[#2e7d57] px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#246644] active:bg-[#1e5437]"
+            className="inline-flex items-center justify-center rounded-[2px] bg-[#2e7d57] px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#246644] active:bg-[#1e5437]"
           >
             + Book Pickup
           </Link>
@@ -175,51 +216,16 @@ export function Navigation() {
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             type="button"
             aria-label="Toggle Navigation Menu"
-            className="md:hidden inline-flex items-center justify-center rounded-[3px] border border-[#d8ddd7] bg-white p-2 text-[#151817] hover:bg-[#e9ede7]"
+            className="md:hidden inline-flex items-center justify-center rounded-[2px] border border-[#d8ddd7] bg-white p-2 text-[#151817] hover:bg-[#e9ede7]"
           >
-            <span className="text-xs font-mono">{isMobileMenuOpen ? "✕" : "☰"}</span>
+            {isMobileMenuOpen ? (
+              <X className="h-4 w-4 text-[#151817]" />
+            ) : (
+              <Menu className="h-4 w-4 text-[#151817]" />
+            )}
           </button>
         </div>
       </div>
-
-      {/* Track Quick Finder Popover (Desktop / Mobile) */}
-      {isTrackOpen && (
-        <div className="border-t border-[#d8ddd7] bg-white px-4 py-3 sm:px-6">
-          <div className="mx-auto max-w-5xl flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-            <div className="space-y-0.5">
-              <span className="text-xs font-semibold text-[#151817]">
-                Track Active Collection Request
-              </span>
-              <p className="text-[11px] text-[#6b746e]">
-                Enter your 8-digit tracking token (e.g. RLP-HYD-A7F2)
-              </p>
-            </div>
-            <form onSubmit={handleTrackSubmit} className="flex items-center gap-2">
-              <input
-                type="text"
-                placeholder="RLP-HYD-XXXX"
-                value={trackTokenInput}
-                onChange={(e) => setTrackTokenInput(e.target.value)}
-                className="w-44 rounded-[3px] border border-[#d8ddd7] px-3 py-1.5 font-mono text-xs uppercase placeholder:text-[#a1aaa4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2e7d57]"
-                autoFocus
-              />
-              <button
-                type="submit"
-                className="rounded-[3px] bg-[#2e7d57] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#246644]"
-              >
-                Track &rarr;
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsTrackOpen(false)}
-                className="rounded-[3px] border border-[#d8ddd7] px-2 py-1.5 text-xs text-[#6b746e] hover:bg-[#e9ede7]"
-              >
-                Close
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* Mobile Drawer */}
       {isMobileMenuOpen && (
@@ -229,33 +235,33 @@ export function Navigation() {
               Citizen Services
             </span>
             <Link
+              href="/analyze"
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="flex items-center justify-between px-3 py-2.5 rounded-[2px] text-xs font-medium text-[#151817] hover:bg-white"
+            >
+              <span>Scan Item (AI Evaluation)</span>
+              <ArrowRight className="h-3.5 w-3.5 text-[#2e7d57]" />
+            </Link>
+            <Link
               href="/request"
               onClick={() => setIsMobileMenuOpen(false)}
-              className="flex items-center justify-between px-3 py-2.5 rounded-[3px] text-xs font-semibold text-[#151817] bg-white border border-[#d8ddd7]"
+              className="flex items-center justify-between px-3 py-2.5 rounded-[2px] text-xs font-semibold text-[#151817] bg-white border border-[#d8ddd7]"
             >
               <span>Schedule Pickup</span>
-              <span className="text-[#2e7d57] font-bold">&rarr;</span>
+              <ArrowRight className="h-3.5 w-3.5 text-[#2e7d57]" />
             </Link>
             <Link
               href="/track"
               onClick={() => setIsMobileMenuOpen(false)}
-              className="flex items-center justify-between px-3 py-2.5 rounded-[3px] text-xs font-medium text-[#151817] hover:bg-white"
+              className="flex items-center justify-between px-3 py-2.5 rounded-[2px] text-xs font-medium text-[#151817] hover:bg-white"
             >
               <span>Track Pickup</span>
               <span className="text-xs text-[#6b746e] font-mono">Token lookup</span>
             </Link>
             <Link
-              href="/#how-it-works"
-              onClick={() => setIsMobileMenuOpen(false)}
-              className="flex items-center justify-between px-3 py-2.5 rounded-[3px] text-xs font-medium text-[#151817] hover:bg-white"
-            >
-              <span>How It Works</span>
-              <span className="text-xs text-[#6b746e]">3 Steps</span>
-            </Link>
-            <Link
               href="/destinations"
               onClick={() => setIsMobileMenuOpen(false)}
-              className="flex items-center justify-between px-3 py-2.5 rounded-[3px] text-xs font-medium text-[#151817] hover:bg-white"
+              className="flex items-center justify-between px-3 py-2.5 rounded-[2px] text-xs font-medium text-[#151817] hover:bg-white"
             >
               <span>Destinations &amp; Centers</span>
               <span className="text-xs text-[#6b746e]">Directory</span>
@@ -269,7 +275,7 @@ export function Navigation() {
             <Link
               href="/dispatch"
               onClick={() => setIsMobileMenuOpen(false)}
-              className="flex items-center justify-between px-3 py-2.5 rounded-[3px] text-xs font-medium text-[#151817] hover:bg-white"
+              className="flex items-center justify-between px-3 py-2.5 rounded-[2px] text-xs font-medium text-[#151817] hover:bg-white"
             >
               <span>Dispatch</span>
               <span className="text-[10px] font-mono text-[#6b746e]">Fleet &amp; Routes</span>
@@ -277,7 +283,7 @@ export function Navigation() {
             <Link
               href="/collector"
               onClick={() => setIsMobileMenuOpen(false)}
-              className="flex items-center justify-between px-3 py-2.5 rounded-[3px] text-xs font-semibold text-[#2e7d57] hover:bg-white"
+              className="flex items-center justify-between px-3 py-2.5 rounded-[2px] text-xs font-semibold text-[#2e7d57] hover:bg-white"
             >
               <span>Collector</span>
               <span className="text-[10px] font-mono text-[#2e7d57]">Driver Manifest</span>
@@ -285,7 +291,7 @@ export function Navigation() {
             <Link
               href="/dashboard"
               onClick={() => setIsMobileMenuOpen(false)}
-              className="flex items-center justify-between px-3 py-2.5 rounded-[3px] text-xs font-medium text-[#151817] hover:bg-white"
+              className="flex items-center justify-between px-3 py-2.5 rounded-[2px] text-xs font-medium text-[#151817] hover:bg-white"
             >
               <span>Impact</span>
               <span className="text-[10px] font-mono text-[#6b746e]">Mass Balance</span>

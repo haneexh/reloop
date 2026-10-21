@@ -16,6 +16,7 @@ import { ResultsPageSkeleton } from "@/components/LoadingSkeleton";
 import { ProcessRail } from "@/components/ProcessRail";
 import { PpriMeter } from "@/components/PpriMeter";
 import { PathwayComparisonTable } from "@/components/PathwayComparisonTable";
+import { ChevronDown, ChevronUp, Truck } from "lucide-react";
 
 interface ItemRecord {
   id: string;
@@ -60,6 +61,7 @@ export default function ResultsPage() {
   const [item, setItem] = useState<ItemRecord | null>(null);
   const [recommendation, setRecommendation] = useState<RecommendationRecord | null>(null);
   const [decision, setDecision] = useState<DecisionResult | null>(null);
+  const [isAssumptionsOpen, setIsAssumptionsOpen] = useState(false);
 
   useEffect(() => {
     if (!itemId) return;
@@ -146,19 +148,19 @@ export default function ResultsPage() {
   if (error || !item || !decision) {
     return (
       <div className="mx-auto max-w-2xl space-y-6">
-        <div className="rounded-sm border border-[#a3512b]/40 bg-[#fff2ed] p-6 text-xs text-[#a3512b] space-y-3">
+        <div className="rounded-[2px] border border-[#a3512b]/40 bg-[#fff2ed] p-6 text-xs text-[#a3512b] space-y-3">
           <div className="font-semibold text-sm">Assessment Not Available</div>
           <p>{error || "Unable to retrieve the requested item record."}</p>
           <div className="pt-2 flex gap-3">
             <Link
               href="/analyze"
-              className="inline-flex items-center justify-center rounded-sm bg-[#2e7d57] px-4 py-2 text-xs font-semibold text-white hover:bg-[#246644]"
+              className="inline-flex items-center justify-center rounded-[2px] bg-[#2e7d57] px-4 py-2 text-xs font-semibold text-white hover:bg-[#246644]"
             >
               Start New Intake
             </Link>
             <Link
               href="/"
-              className="inline-flex items-center justify-center rounded-sm border border-[#d8ddd7] bg-white px-4 py-2 text-xs font-medium text-[#151817] hover:bg-[#e9ede7]"
+              className="inline-flex items-center justify-center rounded-[2px] border border-[#d8ddd7] bg-white px-4 py-2 text-xs font-medium text-[#151817] hover:bg-[#e9ede7]"
             >
               Return to Overview
             </Link>
@@ -202,14 +204,14 @@ export default function ResultsPage() {
         <div className="flex items-center gap-2">
           <Link
             href="/analyze"
-            className="inline-flex items-center justify-center rounded-sm border border-[#d8ddd7] bg-white px-3.5 py-1.5 text-xs font-medium text-[#151817] transition-colors hover:bg-[#e9ede7]"
+            className="inline-flex items-center justify-center rounded-[2px] border border-[#d8ddd7] bg-white px-3.5 py-1.5 text-xs font-medium text-[#151817] transition-colors hover:bg-[#e9ede7]"
           >
             + New Intake
           </Link>
           <button
             onClick={() => window.print()}
             type="button"
-            className="inline-flex items-center justify-center rounded-sm border border-[#d8ddd7] bg-white px-3.5 py-1.5 text-xs font-medium text-[#151817] transition-colors hover:bg-[#e9ede7]"
+            className="inline-flex items-center justify-center rounded-[2px] border border-[#d8ddd7] bg-white px-3.5 py-1.5 text-xs font-medium text-[#151817] transition-colors hover:bg-[#e9ede7]"
           >
             Print Spec Sheet
           </button>
@@ -219,7 +221,7 @@ export default function ResultsPage() {
       {/* ======================================================================= */}
       {/* SECTION 1: PRIMARY RECOMMENDATION & CONFIRMED ITEM OVERVIEW */}
       {/* ======================================================================= */}
-      <section className="grid grid-cols-1 lg:grid-cols-12 gap-px bg-[#d8ddd7] border border-[#d8ddd7] rounded-sm overflow-hidden">
+      <section className="grid grid-cols-1 lg:grid-cols-12 gap-px bg-[#d8ddd7] border border-[#d8ddd7] rounded-[2px] overflow-hidden">
         {/* Left Side: Recommended Action Hero */}
         <div className="lg:col-span-7 bg-[#173d2c] text-white p-6 sm:p-8 flex flex-col justify-between space-y-6">
           <div className="space-y-3">
@@ -244,12 +246,21 @@ export default function ResultsPage() {
               </div>
             </div>
 
-            <Link
-              href={`/analyze/${itemId}/destinations`}
-              className="inline-flex items-center justify-center rounded-sm bg-white px-4 py-2.5 text-xs font-bold text-[#151817] transition-transform hover:-translate-y-0.5 hover:bg-[#f4f5f1]"
-            >
-              Find a Destination Partner &rarr;
-            </Link>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <Link
+                href={`/request?itemId=${item.id}&pathway=${primaryAction}`}
+                className="inline-flex items-center justify-center gap-1.5 rounded-[2px] bg-[#9ec4ad] px-4 py-2.5 text-xs font-bold text-[#151817] transition-all hover:bg-[#b2d5be]"
+              >
+                <Truck className="h-3.5 w-3.5" />
+                <span>Schedule pickup for this item &rarr;</span>
+              </Link>
+              <Link
+                href={`/analyze/${itemId}/destinations`}
+                className="inline-flex items-center justify-center rounded-[2px] border border-white/40 bg-transparent px-3.5 py-2.5 text-xs font-semibold text-white transition-colors hover:border-white hover:bg-white/10"
+              >
+                Find Destination Partner &rarr;
+              </Link>
+            </div>
           </div>
         </div>
 
@@ -257,7 +268,7 @@ export default function ResultsPage() {
         <div className="lg:col-span-5 bg-white p-6 flex flex-col justify-between space-y-5">
           <div className="flex items-start gap-4">
             {/* Real Uploaded Photo Thumbnail */}
-            <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-sm border border-[#d8ddd7] bg-[#f4f5f1] flex items-center justify-center">
+            <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-[2px] border border-[#d8ddd7] bg-[#f4f5f1] flex items-center justify-center">
               {item.image_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -290,28 +301,28 @@ export default function ResultsPage() {
 
           {/* 4 Stats Grid */}
           <div className="grid grid-cols-2 gap-2 border-t border-[#d8ddd7] pt-4">
-            <div className="rounded-sm bg-[#f4f5f1] p-2.5">
+            <div className="rounded-[2px] bg-[#f4f5f1] p-2.5">
               <span className="text-[10px] text-[#6b746e] block">Estimated Repair</span>
               <strong className="font-mono text-sm text-[#151817] font-bold">
                 {formattedRepair}
               </strong>
             </div>
 
-            <div className="rounded-sm bg-[#f4f5f1] p-2.5">
+            <div className="rounded-[2px] bg-[#f4f5f1] p-2.5">
               <span className="text-[10px] text-[#6b746e] block">Estimated Resale</span>
               <strong className="font-mono text-sm text-[#151817] font-bold">
                 {formattedResale}
               </strong>
             </div>
 
-            <div className="rounded-sm bg-[#f4f5f1] p-2.5">
+            <div className="rounded-[2px] bg-[#f4f5f1] p-2.5">
               <span className="text-[10px] text-[#6b746e] block">CO2e Avoided</span>
               <strong className="font-mono text-sm text-[#2e7d57] font-bold">
                 {co2eSaved} kg
               </strong>
             </div>
 
-            <div className="rounded-sm bg-[#f4f5f1] p-2.5">
+            <div className="rounded-[2px] bg-[#f4f5f1] p-2.5">
               <span className="text-[10px] text-[#6b746e] block">Landfill Diverted</span>
               <strong className="font-mono text-sm text-[#151817] font-bold">
                 {wasteDiverted} kg
@@ -334,17 +345,68 @@ export default function ResultsPage() {
         <div className="lg:col-span-4 space-y-6">
           <PpriMeter score={decision.ppri_score} level={decision.ppri_level} />
 
-          <div className="rounded-sm border border-[#d8ddd7] bg-white p-5 space-y-3">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-[#2e7d57] block">
-              Why this result
-            </span>
-            <h4 className="text-sm font-bold font-display text-[#151817]">
-              Deterministic, not mysterious.
-            </h4>
-            <p className="text-xs text-[#6b746e] leading-relaxed">
-              The PP-RI score weighs repair ratio (45%), physical wear (35%), and hardware age (20%). The circular rules compare viability across all six pathways before proposing the recommended circular pathway.
-            </p>
-            <div className="pt-1">
+          {/* Dual Score & Transparent Assumptions Card */}
+          <div className="rounded-[2px] border border-[#d8ddd7] bg-white p-5 space-y-4">
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-widest text-[#2e7d57] block">
+                Dual Score Evaluation
+              </span>
+              <h4 className="text-sm font-bold font-display text-[#151817] mt-0.5">
+                Deterministic, not mysterious.
+              </h4>
+              <p className="text-xs text-[#6b746e] leading-relaxed mt-1">
+                Every scanned device receives two distinct metrics: the circular pathway viability score across all 6 pathways, and the Post-Purchase Repairability Index (PP-RI).
+              </p>
+            </div>
+
+            {/* Quick Dual Score Summary */}
+            <div className="grid grid-cols-2 gap-2 border-t border-[#d8ddd7] pt-3 text-xs">
+              <div className="bg-[#f4f5f1] p-2 rounded-[2px]">
+                <span className="text-[10px] text-[#6b746e] block">Viability Score</span>
+                <span className="font-mono font-bold text-[#151817]">
+                  {Math.round(decision.pathways.find((p) => p.isRecommended)?.suitabilityScore ?? 0)}/100
+                </span>
+              </div>
+              <div className="bg-[#f4f5f1] p-2 rounded-[2px]">
+                <span className="text-[10px] text-[#6b746e] block">PP-RI Index</span>
+                <span className="font-mono font-bold text-[#2e7d57]">
+                  {decision.ppri_score}/10
+                </span>
+              </div>
+            </div>
+
+            {/* One-Click Assumptions Drawer Button */}
+            <button
+              type="button"
+              onClick={() => setIsAssumptionsOpen(!isAssumptionsOpen)}
+              className="w-full flex items-center justify-between text-xs font-semibold text-[#2e7d57] hover:text-[#1e583c] border-t border-[#d8ddd7] pt-3 transition-colors"
+            >
+              <span>Scoring Methodology &amp; Assumptions</span>
+              {isAssumptionsOpen ? (
+                <ChevronUp className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronDown className="h-3.5 w-3.5" />
+              )}
+            </button>
+
+            {isAssumptionsOpen && (
+              <div className="space-y-2.5 rounded-[2px] bg-[#f9faf8] p-3 text-[11px] text-[#6b746e] border border-[#d8ddd7] leading-relaxed">
+                <div>
+                  <strong className="text-[#151817] block font-mono text-[10px]">1. PP-RI INDEX WEIGHTS</strong>
+                  <span>Cost Ratio (45%) + Physical Wear (35%) + Hardware Age (20%). Modeled on French AGEC circular criteria.</span>
+                </div>
+                <div>
+                  <strong className="text-[#151817] block font-mono text-[10px]">2. ECONOMIC RESALE / REPAIR</strong>
+                  <span>Estimated using depreciation curves calibrated against Indian secondary refurbished electronics markets.</span>
+                </div>
+                <div>
+                  <strong className="text-[#151817] block font-mono text-[10px]">3. CO2e &amp; MATERIAL RECOVERY</strong>
+                  <span>Calculated from life-cycle embodied manufacturing emissions (CPCB &amp; Ecoinvent device coefficients).</span>
+                </div>
+              </div>
+            )}
+
+            <div className="pt-1 border-t border-[#d8ddd7]">
               <Link
                 href="/analyze"
                 className="text-xs font-semibold text-[#2e7d57] hover:underline"
@@ -359,7 +421,7 @@ export default function ResultsPage() {
       {/* ======================================================================= */}
       {/* SECTION 3: PHYSICAL FULFILLMENT BANNER */}
       {/* ======================================================================= */}
-      <section className="rounded-sm border border-[#d8ddd7] bg-[#e9ede7] p-6 space-y-4">
+      <section className="rounded-[2px] border border-[#d8ddd7] bg-[#e9ede7] p-6 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#d8ddd7] pb-3">
           <div className="font-display text-sm uppercase tracking-wider text-[#151817] font-bold">
             Fulfillment &amp; Destination Routing
@@ -375,20 +437,27 @@ export default function ResultsPage() {
 
         <div className="flex flex-wrap items-center gap-3 pt-1">
           <Link
+            href={`/request?itemId=${item.id}&pathway=${primaryAction}`}
+            className="inline-flex items-center justify-center gap-1.5 rounded-[2px] bg-[#173d2c] px-5 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-[#2e7d57]"
+          >
+            <Truck className="h-3.5 w-3.5" />
+            <span>Schedule Doorstep Pickup for this Item &rarr;</span>
+          </Link>
+          <Link
             href={`/analyze/${itemId}/destinations`}
-            className="inline-flex items-center justify-center rounded-sm bg-[#2e7d57] px-5 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-[#246644]"
+            className="inline-flex items-center justify-center rounded-[2px] bg-[#2e7d57] px-5 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-[#246644]"
           >
             Find Destination Partners on Map &rarr;
           </Link>
           <Link
             href="/analyze"
-            className="inline-flex items-center justify-center rounded-sm border border-[#d8ddd7] bg-white px-4 py-2.5 text-xs font-medium text-[#151817] transition-colors hover:bg-[#f4f5f1]"
+            className="inline-flex items-center justify-center rounded-[2px] border border-[#d8ddd7] bg-white px-4 py-2.5 text-xs font-medium text-[#151817] transition-colors hover:bg-[#f4f5f1]"
           >
             Analyze Another Item
           </Link>
           <Link
             href="/dashboard"
-            className="inline-flex items-center justify-center rounded-sm border border-[#d8ddd7] bg-white px-4 py-2.5 text-xs font-medium text-[#151817] transition-colors hover:bg-[#f4f5f1]"
+            className="inline-flex items-center justify-center rounded-[2px] border border-[#d8ddd7] bg-white px-4 py-2.5 text-xs font-medium text-[#151817] transition-colors hover:bg-[#f4f5f1]"
           >
             View Fleet Dashboard
           </Link>

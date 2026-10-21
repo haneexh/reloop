@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
@@ -26,6 +26,7 @@ export default function DestinationMap({
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
   const userMarkerRef = useRef<L.Marker | null>(null);
   const markerMapRef = useRef<Map<string, L.Marker>>(new Map());
+  const [tileError, setTileError] = useState(false);
 
   // 1. Initialize Map once
   useEffect(() => {
@@ -47,12 +48,18 @@ export default function DestinationMap({
     L.control.zoom({ position: "topright" }).addTo(map);
 
     // OpenStreetMap standard tile layer with proper attribution and crossOrigin
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       attribution:
         '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
       crossOrigin: true,
-    }).addTo(map);
+    });
+
+    tiles.on("tileerror", () => {
+      setTileError(true);
+    });
+
+    tiles.addTo(map);
 
     const layerGroup = L.layerGroup().addTo(map);
     markersLayerRef.current = layerGroup;
@@ -280,7 +287,12 @@ export default function DestinationMap({
   }, [selectedPartnerId, partners]);
 
   return (
-    <div className="relative h-full w-full overflow-hidden rounded-sm border border-[#d8ddd7] bg-[#f2efe9]">
+    <div className="relative h-full w-full overflow-hidden rounded-[2px] border border-[#d8ddd7] bg-[#f2efe9]">
+      {tileError && (
+        <div className="absolute top-2 left-2 z-[1000] rounded-[2px] border border-[#d8ddd7] bg-white/95 px-2.5 py-1 text-[11px] font-mono text-[#6b746e] shadow-sm">
+          <span>Map vector fallback (locations plotted)</span>
+        </div>
+      )}
       <div
         ref={mapContainerRef}
         className="h-full w-full z-0 min-h-[440px]"

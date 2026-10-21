@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/Badge";
 
 interface ItemWithRecommendation {
   id: string;
+  request_id?: string | null;
   image_url: string | null;
   item_type: string | null;
   brand: string | null;
@@ -653,6 +654,109 @@ export default function DashboardPage() {
               </div>
             </Card>
           )}
+
+          {/* Scanned Items & Circular Pathways Breakdown (Intake AI Stream) */}
+          {(() => {
+            const totalScanned = items.length;
+            const totalScannedKg = items.reduce((sum, it) => sum + Number(it.waste_avoided_kg || 0), 0);
+            const totalScannedCo2e = items.reduce((sum, it) => sum + Number(it.co2e_saved_est || 0), 0);
+            const linkedToPickupCount = items.filter((it) => Boolean(it.request_id)).length;
+            const pathwayCounts: Record<RecommendedAction, number> = {
+              repair: 0,
+              reuse: 0,
+              donate: 0,
+              resell: 0,
+              refurbish: 0,
+              recycle: 0,
+            };
+            for (const it of items) {
+              const topRec = it.recommendations?.[0]?.recommended_action || "recycle";
+              if (topRec in pathwayCounts) {
+                pathwayCounts[topRec]++;
+              }
+            }
+
+            return (
+              <Card className="p-6 space-y-4 rounded-[2px]">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#d8ddd7] pb-3">
+                  <div>
+                    <h3 className="text-base font-bold text-[#151817]">
+                      Scanned Hardware &amp; 6-Pathway Allocation (Intake AI Stream)
+                    </h3>
+                    <p className="text-xs text-[#6b746e]">
+                      Citizen devices classified via multimodal vision AI and routed by the deterministic circular engine.
+                    </p>
+                  </div>
+                  <Link
+                    href="/analyze"
+                    className="text-xs font-semibold text-[#2e7d57] hover:underline whitespace-nowrap"
+                  >
+                    Scan new item &rarr;
+                  </Link>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3 bg-[#f4f5f1] border border-[#d8ddd7] rounded-[2px] space-y-1">
+                    <span className="text-[10px] font-mono text-[#6b746e] uppercase block font-semibold">
+                      Total Devices Scanned
+                    </span>
+                    <div className="text-lg font-bold font-mono text-[#151817]">
+                      {totalScanned}
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-[#edf5f0] border border-[#bcdbc8] rounded-[2px] space-y-1">
+                    <span className="text-[10px] font-mono text-[#1e583c] uppercase block font-semibold">
+                      Linked to Pickup
+                    </span>
+                    <div className="text-lg font-bold font-mono text-[#1e583c]">
+                      {linkedToPickupCount} <span className="text-xs font-normal text-[#246644]">({totalScanned > 0 ? Math.round((linkedToPickupCount / totalScanned) * 100) : 0}%)</span>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-white border border-[#d8ddd7] rounded-[2px] space-y-1">
+                    <span className="text-[10px] font-mono text-[#6b746e] uppercase block font-semibold">
+                      Assessed Weight
+                    </span>
+                    <div className="text-lg font-bold font-mono text-[#151817]">
+                      {totalScannedKg.toFixed(1)} kg
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-white border border-[#d8ddd7] rounded-[2px] space-y-1">
+                    <span className="text-[10px] font-mono text-[#6b746e] uppercase block font-semibold">
+                      Estimated Carbon Avoided
+                    </span>
+                    <div className="text-lg font-bold font-mono text-[#2e7d57]">
+                      {totalScannedCo2e.toFixed(1)} kg
+                    </div>
+                  </div>
+                </div>
+
+                {/* 6-Pathway Allocation Grid */}
+                <div className="space-y-2 pt-1">
+                  <span className="text-[11px] font-mono uppercase font-bold text-[#6b746e] block">
+                    Distribution Across Circular Pathways
+                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-xs">
+                    {(Object.keys(pathwayCounts) as RecommendedAction[]).map((pw) => (
+                      <div
+                        key={pw}
+                        className={`p-2.5 rounded-[2px] border flex flex-col justify-between ${ACTION_COLORS[pw].bg} ${ACTION_COLORS[pw].border}`}
+                      >
+                        <span className={`text-[10px] font-mono uppercase font-bold ${ACTION_COLORS[pw].text}`}>
+                          {pw}
+                        </span>
+                        <div className={`text-base font-bold font-mono ${ACTION_COLORS[pw].text} mt-1`}>
+                          {pathwayCounts[pw]}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </Card>
+            );
+          })()}
 
           {/* Environmental Estimates (Marked with ESTIMATE Badge) */}
           <Card className="p-6 space-y-4 bg-[#f9faf8]">

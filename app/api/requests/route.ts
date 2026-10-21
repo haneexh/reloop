@@ -31,6 +31,7 @@ const CreateRequestSchema = z
     pickup_slot: z.string().max(50),
     notes: z.string().max(500).nullable().optional(),
     items: z.array(RequestItemSchema).min(1, "At least one e-waste item is required").max(50),
+    linked_item_id: z.string().uuid().nullable().optional(),
   })
   .strict();
 
@@ -180,6 +181,30 @@ export async function POST(req: NextRequest) {
 
       if (itemsError) {
         console.warn("Notice: Items insertion warning:", itemsError);
+      }
+    }
+
+    // 7b. If this request originated from an AI scan assessment, link the item
+    if (body.linked_item_id) {
+      const { error: linkErr } = await supabase
+        .from("items")
+        .update({ request_id: requestId })
+        .eq("id", body.linked_item_id);
+
+      if (linkErr) {
+        console.warn("Notice: Linked item update warning:", linkErr);
+      } else {
+        await supabase.from("event_log").insert({
+          event_type: "ITEM_LINKED",
+          entity_type: "items",
+          entity_id: body.linked_item_id,
+          actor_role: "CITIZEN",
+          payload_json: {
+            request_id: requestId,
+            qr_token: qrToken,
+            message: "Item linked from AI scan assessment to municipal pickup request",
+          },
+        });
       }
     }
 

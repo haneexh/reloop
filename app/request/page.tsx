@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useRef, useEffect, ChangeEvent } from "react";
+import { useState, useRef, useEffect, ChangeEvent, Suspense } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import QRCode from "qrcode";
+import { ScanLine, CheckCircle } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
   EWASTE_TAXONOMY,
@@ -88,13 +89,15 @@ interface ManifestItem {
   image_url?: string;
 }
 
-export default function CitizenRequestPage() {
+function CitizenRequestContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   // Stepper state: 1: Items, 2: Location, 3: Schedule & Contact, 4: Review, 5: Confirmed
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4 | 5>(1);
 
   // Manifest items state
   const [items, setItems] = useState<ManifestItem[]>([]);
+  const [linkedItemId, setLinkedItemId] = useState<string | null>(null);
 
   // Item intake drawer / draft state
   const [isAddingItem, setIsAddingItem] = useState(false);
@@ -186,6 +189,73 @@ export default function CitizenRequestPage() {
     }
     loadZones();
   }, []);
+
+  // Pre-fill scanned item when redirected from /analyze/[itemId]/results
+  useEffect(() => {
+    const itemIdParam = searchParams.get("itemId");
+    if (!itemIdParam) return;
+
+    async function loadScannedItem() {
+      try {
+        const { data, error } = await supabase
+          .from("items")
+          .select("*")
+          .eq("id", itemIdParam as string)
+          .single();
+
+        if (error || !data) return;
+
+        const tax = mapItemToTaxonomy(data.item_type || "smartphone");
+        const impact = calculateImpact(
+          tax.label,
+          data.condition || "working",
+          data.estimated_age_years || tax.defaultAgeYears,
+          Number(data.waste_avoided_kg || tax.avgWeightKg)
+        );
+
+        const prefilledItem: ManifestItem = {
+          id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          item_type: tax.label,
+          category_key: tax.categoryKey,
+          brand: data.brand || "Standard Model",
+          condition: data.condition || "working",
+          estimated_age_years: data.estimated_age_years || tax.defaultAgeYears,
+          weight_kg: Number(data.waste_avoided_kg || tax.avgWeightKg),
+          quantity: 1,
+          hazards: tax.potentialHazards,
+          co2e_saved_est: Number(data.co2e_saved_est || impact.co2eSavedKg),
+          waste_avoided_kg: Number(data.waste_avoided_kg || impact.wasteAvoidedKg),
+          image_url: data.image_url || undefined,
+        };
+
+        setLinkedItemId(data.id);
+        setItems((prev) => {
+          if (prev.some((p) => p.item_type === prefilledItem.item_type && p.brand === prefilledItem.brand)) {
+            return prev;
+          }
+          return [...prev, prefilledItem];
+        });
+      } catch (err) {
+        console.warn("Could not prefill item from scan:", err);
+      }
+    }
+
+    loadScannedItem();
+  }, [searchParams]);
+
+  // Dynamic zone auto-resolution when address keywords match zone names
+  useEffect(() => {
+    if (!address.trim() || zoneList.length === 0) return;
+    const lower = address.toLowerCase();
+
+    for (const z of zoneList) {
+      const keywords = z.name.toLowerCase().split(/[\s,&]+/);
+      if (keywords.some((kw) => kw.length > 3 && lower.includes(kw))) {
+        setSelectedZoneId(z.id);
+        break;
+      }
+    }
+  }, [address, zoneList]);
 
   // When group changes, auto-select first item type in that group
   const handleGroupSelect = (groupId: string) => {
@@ -495,6 +565,7 @@ export default function CitizenRequestPage() {
           pickup_slot: pickupSlot,
           notes: notes || null,
           items: payloadItems,
+          linked_item_id: linkedItemId || null,
         }),
       });
 
@@ -634,15 +705,24 @@ export default function CitizenRequestPage() {
                 Add one or more electronic items. You can snap an optional photo for assistance or pick from standard categories.
               </p>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleFillDemoRequest}
-              className="border-[#2e7d57] bg-[#edf5f0] text-[#1e583c] hover:bg-[#e0eee5] shrink-0 font-semibold text-xs"
-            >
-              Fill demo request
-            </Button>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <Link
+                href="/analyze"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[2px] border border-[#2e7d57] bg-white text-xs font-semibold text-[#2e7d57] hover:bg-[#edf5f0] transition-colors"
+              >
+                <ScanLine className="h-3.5 w-3.5" />
+                <span>Scan this item instead</span>
+              </Link>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleFillDemoRequest}
+                className="border-[#2e7d57] bg-[#edf5f0] text-[#1e583c] hover:bg-[#e0eee5] font-semibold text-xs rounded-[2px]"
+              >
+                Fill demo request
+              </Button>
+            </div>
           </div>
 
           {/* Added items list */}
@@ -1049,9 +1129,17 @@ export default function CitizenRequestPage() {
                   <span className="text-[11px] font-semibold text-[#6b746e]">
                     Pickup Area:
                   </span>
-                  <span className="text-xs font-bold text-[#151817]">
-                    {humanArea}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {currentZone && (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[2px] bg-[#edf5f0] border border-[#bcdbc8] font-mono text-[10px] text-[#1e583c] font-semibold">
+                        <CheckCircle className="h-3 w-3 text-[#2e7d57]" />
+                        <span>{currentZone.code}</span>
+                      </span>
+                    )}
+                    <span className="text-xs font-bold text-[#151817]">
+                      {humanArea}
+                    </span>
+                  </div>
                 </div>
                 <div>
                   <label htmlFor="zone-select" className="block text-[11px] text-[#6b746e] mb-1">
@@ -1459,5 +1547,19 @@ export default function CitizenRequestPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function CitizenRequestPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto max-w-3xl py-12 text-center text-xs font-mono text-[#6b746e]">
+          Loading collection intake...
+        </div>
+      }
+    >
+      <CitizenRequestContent />
+    </Suspense>
   );
 }

@@ -441,27 +441,57 @@ export default function AnalyzePage() {
     setStep("upload");
   };
 
-  const handleUseSampleItem = () => {
+  const handleUseSampleItem = (sampleType: "laptop" | "phone" | "tv" = "laptop") => {
     stopCamera();
     setErrorMessage(null);
     setNotElectronicError(null);
-    setInfoMessage("Sample hardware item loaded (Lenovo ThinkPad Laptop). Verify or customize the specifications below.");
     setIsManualFallback(false);
     setAiProvider("sample-template");
 
-    setFormData({
-      item_type: "laptop",
-      brand: "Lenovo ThinkPad",
-      estimated_age_years: "3.5",
-      condition: "cosmetic_damage",
-      condition_notes: "Minor scuffs on outer casing and hinge wear. Display, keyboard, and motherboard fully operational.",
-      material_recoverable: true,
-    });
+    if (sampleType === "phone") {
+      setInfoMessage("Sample hardware item loaded: Samsung Galaxy Smartphone (Sample). Verify specifications below.");
+      setFormData({
+        item_type: "smartphone",
+        brand: "Samsung Galaxy",
+        estimated_age_years: "2.0",
+        condition: "functional",
+        condition_notes: "Sample phone: fully working screen, intact battery, minor cosmetic wear on back panel.",
+        material_recoverable: true,
+      });
+      const sampleImg = "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=800&q=80";
+      setPreviewUrl(sampleImg);
+      setUploadedPublicUrl(sampleImg);
+      setBase64Url(sampleImg);
+    } else if (sampleType === "tv") {
+      setInfoMessage("Sample hardware item loaded: Sony Trinitron CRT Television (Sample). Verify specifications below.");
+      setFormData({
+        item_type: "crt_tv",
+        brand: "Sony Trinitron",
+        estimated_age_years: "18.0",
+        condition: "severely_damaged",
+        condition_notes: "Sample CRT TV: heavy vintage display, power cord present, glass envelope intact, high material recovery value.",
+        material_recoverable: true,
+      });
+      const sampleImg = "https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?auto=format&fit=crop&w=800&q=80";
+      setPreviewUrl(sampleImg);
+      setUploadedPublicUrl(sampleImg);
+      setBase64Url(sampleImg);
+    } else {
+      setInfoMessage("Sample hardware item loaded: Lenovo ThinkPad Laptop (Sample). Verify specifications below.");
+      setFormData({
+        item_type: "laptop",
+        brand: "Lenovo ThinkPad",
+        estimated_age_years: "3.5",
+        condition: "cosmetic_damage",
+        condition_notes: "Sample laptop: minor scuffs on outer casing and hinge wear. Display, keyboard, and motherboard fully operational.",
+        material_recoverable: true,
+      });
+      const sampleImg = "https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?auto=format&fit=crop&w=800&q=80";
+      setPreviewUrl(sampleImg);
+      setUploadedPublicUrl(sampleImg);
+      setBase64Url(sampleImg);
+    }
 
-    const sampleImg = "https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?auto=format&fit=crop&w=800&q=80";
-    setPreviewUrl(sampleImg);
-    setUploadedPublicUrl(sampleImg);
-    setBase64Url(sampleImg);
     setStep("review");
   };
 
@@ -575,7 +605,7 @@ export default function AnalyzePage() {
 
             <button
               type="button"
-              onClick={handleUseSampleItem}
+              onClick={() => handleUseSampleItem("laptop")}
               className="inline-flex items-center gap-1.5 text-xs text-[#6b746e] hover:text-[#151817] underline underline-offset-2 sm:ml-auto"
             >
               Or try sample hardware (Laptop) &rarr;
@@ -762,14 +792,30 @@ export default function AnalyzePage() {
                       <span>Browse Files</span>
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={handleUseSampleItem}
-                      className="inline-flex items-center gap-1.5 rounded-sm border border-[#d8ddd7] bg-white px-4 py-2 text-xs font-medium text-[#151817] transition-colors hover:bg-[#e9ede7]"
-                    >
-                      <span>Use a sample item</span>
-                      <span aria-hidden="true" className="text-[#2e7d57] font-bold">↗</span>
-                    </button>
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                      <span className="text-[11px] font-mono text-[#6b746e]">Try sample item:</span>
+                      <button
+                        type="button"
+                        onClick={() => handleUseSampleItem("phone")}
+                        className="inline-flex items-center gap-1 rounded-sm border border-[#d8ddd7] bg-white px-2.5 py-1.5 text-xs font-medium text-[#151817] transition-colors hover:bg-[#e9ede7]"
+                      >
+                        <span>Phone (Sample)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleUseSampleItem("laptop")}
+                        className="inline-flex items-center gap-1 rounded-sm border border-[#d8ddd7] bg-white px-2.5 py-1.5 text-xs font-medium text-[#151817] transition-colors hover:bg-[#e9ede7]"
+                      >
+                        <span>Laptop (Sample)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleUseSampleItem("tv")}
+                        className="inline-flex items-center gap-1 rounded-sm border border-[#d8ddd7] bg-white px-2.5 py-1.5 text-xs font-medium text-[#151817] transition-colors hover:bg-[#e9ede7]"
+                      >
+                        <span>TV / Display (Sample)</span>
+                      </button>
+                    </div>
                   </div>
 
                   <p className="text-[11px] text-[#6b746e] pt-1">

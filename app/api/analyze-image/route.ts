@@ -134,7 +134,7 @@ function extractJSON(text: string): AssessmentResult | null {
 /**
  * 1. Google Gemini Vision API Call
  * Primary: GEMINI_MODEL or gemini-3.5-flash
- * Fallback: gemini-2.5-flash
+ * Fallback: gemini-3.6-flash (current GA replacement for deprecated gemini-2.0/2.5)
  */
 async function callGeminiVision(
   base64Data: string,
@@ -154,7 +154,7 @@ async function callGeminiVision(
     : SYSTEM_PROMPT;
 
   const primaryModel = process.env.GEMINI_MODEL || "gemini-3.5-flash";
-  const fallbackModel = "gemini-2.5-flash";
+  const fallbackModel = "gemini-3.6-flash";
   const models = Array.from(new Set([primaryModel, fallbackModel]));
 
   let lastError = "";
@@ -464,14 +464,14 @@ export async function POST(req: NextRequest) {
       model: "none",
       latency_ms: latencyMs,
       manual_fallback: true,
-      message: "Vision providers unavailable or uncredited. Switched to manual calibration mode.",
+      message: "AI analysis unavailable, using guided manual entry",
       provider_attempts: providerAttempts,
       data: {
         item_type: "Other Electronics / Unlisted",
         brand: null,
         estimated_age_years: null,
         condition: "functional",
-        condition_notes: "Manual assessment entered by user.",
+        condition_notes: "AI analysis unavailable, using guided manual entry",
         material_recoverable: true,
         confidence: "low",
         is_low_confidence: true,
@@ -488,12 +488,13 @@ export async function POST(req: NextRequest) {
         model: "none",
         latency_ms: latencyMs,
         error: error instanceof Error ? error.message : "Internal assessment error",
+        message: "AI analysis unavailable, using guided manual entry",
         data: {
           item_type: "Other Electronics / Unlisted",
           brand: null,
           estimated_age_years: null,
           condition: "functional",
-          condition_notes: "Fallback manual entry.",
+          condition_notes: "AI analysis unavailable, using guided manual entry",
           material_recoverable: true,
           confidence: "low",
           is_low_confidence: true,
