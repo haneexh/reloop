@@ -38,7 +38,7 @@ describe("PS-013 Canonical Tracking Token & Quality Gate Tests", () => {
       isHighQualityAssessment({
         item_type: "Other Electronics / Unlisted",
         confidence: "high",
-      }),
+      } as unknown as import("../lib/ai-scan-cache.ts").AssessmentResult),
       false,
       "Should reject Other Electronics / Unlisted"
     );
@@ -47,7 +47,7 @@ describe("PS-013 Canonical Tracking Token & Quality Gate Tests", () => {
       isHighQualityAssessment({
         item_type: "unknown",
         confidence: "medium",
-      }),
+      } as unknown as import("../lib/ai-scan-cache.ts").AssessmentResult),
       false,
       "Should reject unknown"
     );
@@ -55,7 +55,7 @@ describe("PS-013 Canonical Tracking Token & Quality Gate Tests", () => {
     assert.equal(
       isHighQualityAssessment({
         confidence: "high",
-      }),
+      } as unknown as import("../lib/ai-scan-cache.ts").AssessmentResult),
       false,
       "Should reject missing item_type"
     );
@@ -64,7 +64,7 @@ describe("PS-013 Canonical Tracking Token & Quality Gate Tests", () => {
       isHighQualityAssessment({
         item_type: "Smartphone",
         confidence: "low",
-      }),
+      } as unknown as import("../lib/ai-scan-cache.ts").AssessmentResult),
       false,
       "Should reject low confidence"
     );
@@ -76,8 +76,9 @@ describe("PS-013 Canonical Tracking Token & Quality Gate Tests", () => {
         item_type: "Smartphone",
         confidence: "high",
         brand: "Apple",
-        condition: "working",
-      }),
+        condition: "functional",
+        is_electronic: true,
+      } as unknown as import("../lib/ai-scan-cache.ts").AssessmentResult),
       true
     );
 
@@ -87,7 +88,8 @@ describe("PS-013 Canonical Tracking Token & Quality Gate Tests", () => {
         confidence: "medium",
         brand: "Dell",
         condition: "cosmetic_damage",
-      }),
+        is_electronic: true,
+      } as unknown as import("../lib/ai-scan-cache.ts").AssessmentResult),
       true
     );
   });
@@ -98,7 +100,8 @@ describe("PS-013 Canonical Tracking Token & Quality Gate Tests", () => {
         item_type: "Non-electronic item (shirt / apparel)",
         is_electronic: false,
         confidence: "high",
-      }),
+        rejection_reason: "Clothing item detected",
+      } as unknown as import("../lib/ai-scan-cache.ts").AssessmentResult),
       true
     );
   });

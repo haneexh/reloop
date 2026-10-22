@@ -26,7 +26,7 @@ const CreateRequestSchema = z
     address: z.string().min(5, "Address must be at least 5 characters").max(500),
     lat: z.number().min(-90).max(90).nullable().optional(),
     lng: z.number().min(-180).max(180).nullable().optional(),
-    zone_id: z.string().uuid().nullable().optional(),
+    zone_id: z.string().regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/, "Invalid zone ID").nullable().optional(),
     pickup_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format"),
     pickup_slot: z.string().max(50),
     notes: z.string().max(500).nullable().optional(),
