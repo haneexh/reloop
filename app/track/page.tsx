@@ -63,7 +63,7 @@ export default function TrackLookupPage() {
                   setTokenInput(e.target.value);
                   if (error) setError(null);
                 }}
-                placeholder="RLP-HYD-XXXX"
+                placeholder="RLP-HYD-7K9M2W4X8P"
                 className="w-full rounded-[3px] border border-[#d8ddd7] px-3.5 py-2.5 font-mono text-sm uppercase text-[#151817] placeholder:text-[#a1aaa4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2e7d57]"
                 autoFocus
               />

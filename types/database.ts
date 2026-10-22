@@ -510,6 +510,33 @@ export interface Database {
         };
         Relationships: [];
       };
+      ai_scan_cache: {
+        Row: {
+          image_sha256: string;
+          provider: string;
+          model: string;
+          result: Json;
+          created_at: string;
+          hit_count: number;
+        };
+        Insert: {
+          image_sha256: string;
+          provider: string;
+          model: string;
+          result: Json;
+          created_at?: string;
+          hit_count?: number;
+        };
+        Update: {
+          image_sha256?: string;
+          provider?: string;
+          model?: string;
+          result?: Json;
+          created_at?: string;
+          hit_count?: number;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;

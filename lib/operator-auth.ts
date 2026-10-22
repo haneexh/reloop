@@ -13,15 +13,7 @@ export interface SessionPayload {
   isDemo: boolean;
 }
 
-/**
- * Generate cryptographically random, at least 128-bit, URL-safe tracking token.
- * Example: RLP-c9f28a7b1e45d603a1b2c3d4e5f60718
- */
-export function generateSecureTrackingToken(): string {
-  // 16 bytes = 128 bits of cryptographic entropy
-  const randomHex = crypto.randomBytes(16).toString("hex");
-  return `RLP-${randomHex}`;
-}
+export { generateSecureTrackingToken, isValidTrackingToken, isDemoTrackingToken } from "./tracking-token.ts";
 
 /**
  * Sign payload using HMAC-SHA256

@@ -39,8 +39,8 @@ export function TrackingInputForm({
               setToken(e.target.value);
               if (error) setError(null);
             }}
-            placeholder="e.g. RLP-HYD-A7F2"
-            aria-label="Enter your 8-character tracking code"
+            placeholder="e.g. RLP-HYD-7K9M2W4X8P"
+            aria-label="Enter your tracking code"
             className="w-full rounded-[3px] border border-[#d8ddd7] bg-white px-3.5 py-2.5 font-mono text-xs uppercase text-[#151817] placeholder:text-[#a1aaa4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2e7d57]"
           />
         </div>

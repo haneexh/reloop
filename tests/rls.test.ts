@@ -74,12 +74,13 @@ describe("PS-013 RLS Security Policies", () => {
     assert.ok(error !== null, "Anonymous client direct insert with invalid weight must be rejected");
   });
 
-  it("generates cryptographically random 128-bit tracking tokens with required prefix", async () => {
-    const { generateSecureTrackingToken } = await import("../lib/operator-auth.ts");
+  it("generates cryptographically random 50-bit tracking tokens with required prefix", async () => {
+    const { generateSecureTrackingToken, isValidTrackingToken } = await import("../lib/tracking-token.ts");
     const token1 = generateSecureTrackingToken();
     const token2 = generateSecureTrackingToken();
-    assert.ok(token1.startsWith("RLP-"), "Token must start with RLP- prefix");
-    assert.ok(token1.length >= 36, "Token must have high entropy and length >= 36 chars");
+    assert.ok(token1.startsWith("RLP-HYD-"), "Token must start with RLP-HYD- prefix");
+    assert.equal(token1.length, 18, "Token must be exactly 18 chars (RLP-HYD- + 10 chars, 50 bits entropy)");
+    assert.ok(isValidTrackingToken(token1), "Generated token must satisfy validation rules");
     assert.notEqual(token1, token2, "Consecutive generated tokens must be cryptographically distinct");
   });
 

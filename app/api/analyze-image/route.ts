@@ -9,29 +9,38 @@ import { supabaseAdmin as supabase } from "@/lib/supabase";
 import { checkRateLimit } from "@/lib/rate-limiter";
 import type { Json } from "@/types/database";
 
-const SYSTEM_PROMPT = `You are a circular economy assessor for RE:LOOP.
-Classify physical electronic devices vs non-electronics.
-If NOT electronic (clothing, furniture, humans, food, etc), return:
-{"is_electronic":false,"rejection_reason":"non-electronic object detected"}
-If electronic, return:
-{"is_electronic":true,"item_type":"...","brand":"...","estimated_age_years":number,"condition":"functional"|"cosmetic_damage"|"partially_working"|"severely_damaged","condition_notes":"...","material_recoverable":true,"confidence":"high"|"medium"|"low"}
-Raw JSON only.`;
+const SYSTEM_PROMPT = `You are a precision circular economy hardware assessor for RE:LOOP.
+Classify physical objects from photos into exact electronic hardware devices vs non-electronics.
 
-export interface AssessmentResult {
-  is_electronic: boolean;
-  rejection_reason?: string;
-  item_type: string;
-  brand: string | null;
-  estimated_age_years: number | null;
-  condition: "functional" | "cosmetic_damage" | "partially_working" | "severely_damaged";
-  condition_notes: string;
-  material_recoverable: boolean;
-  confidence: "high" | "medium" | "low";
-  is_low_confidence: boolean;
+If the photo does NOT show an electronic item (e.g. clothing, shirt, textile, furniture, human, food, pet, plant, book, plain paper, plastic bottle):
+return:
+{"is_electronic":false,"rejection_reason":"non-electronic object detected"}
+
+If the photo shows an electronic item:
+Classify it into a SPECIFIC hardware category (e.g. "Smartphone", "Laptop", "Tablet", "Desktop Computer", "Computer Monitor", "Television", "Printer / Scanner", "Audio Speaker / Headphones", "Smartwatch / Wearable", "Gaming Console", "Power Bank / Charger", "Networking Router / Modem", "Microwave / Kitchen Appliance", "Air Conditioner / Fan", "Power Tool").
+Do NOT use vague or generic labels like "device", "electronics", or "Other Electronics / Unlisted" when an identifiable consumer or enterprise device is shown.
+
+Return JSON in this exact structure:
+{
+  "is_electronic": true,
+  "item_type": "Specific Hardware Category",
+  "brand": "Manufacturer brand name or null if unbranded/unidentified",
+  "estimated_age_years": number (e.g. 1 to 15),
+  "condition": "functional" | "cosmetic_damage" | "partially_working" | "severely_damaged",
+  "condition_notes": "Concise physical condition assessment based on visible wear, screen status, casing integrity",
+  "material_recoverable": true,
+  "confidence": "high" | "medium" | "low"
 }
 
-// In-memory process cache keyed by image SHA-256 for sub-millisecond edge lookups
-const inMemoryCache = new Map<string, { result: AssessmentResult; provider: string; model: string }>();
+Raw JSON only. No markdown formatting, no explanations outside JSON.`;
+
+import {
+  type AssessmentResult,
+  getMemoryCache,
+  setMemoryCache,
+  isHighQualityAssessment,
+  extractJSON,
+} from "@/lib/ai-scan-cache";
 
 const RequestSchema = z.object({
   imageBase64: z.string().min(10, "Image base64 data is required"),
@@ -40,345 +49,224 @@ const RequestSchema = z.object({
   imageHash: z.string().optional().nullable(),
 });
 
-function extractJSON(text: string): AssessmentResult | null {
-  if (!text) return null;
-
-  const sanitizeParsed = (parsed: Record<string, unknown>): AssessmentResult => {
-    const isElectronic = parsed.is_electronic !== false;
-    const rejectionReason = typeof parsed.rejection_reason === "string" ? parsed.rejection_reason : undefined;
-
-    if (!isElectronic) {
-      return {
-        is_electronic: false,
-        rejection_reason: rejectionReason,
-        item_type: "Non-Electronic Item",
-        brand: null,
-        estimated_age_years: null,
-        condition: "functional",
-        condition_notes: rejectionReason || "Non-electronic item detected.",
-        material_recoverable: false,
-        confidence: "high",
-        is_low_confidence: false,
-      };
-    }
-
-    const rawType = typeof parsed.item_type === "string" && parsed.item_type.trim()
-      ? parsed.item_type.trim().slice(0, 80)
-      : "Other Electronics / Unlisted";
-    const rawBrand = typeof parsed.brand === "string" && parsed.brand.trim()
-      ? parsed.brand.trim().slice(0, 80)
-      : null;
-    const rawAge = typeof parsed.estimated_age_years === "number" && Number.isFinite(parsed.estimated_age_years)
-      ? Math.max(0, Math.min(50, parsed.estimated_age_years))
-      : null;
-    const rawCondition = [
-      "functional",
-      "cosmetic_damage",
-      "partially_working",
-      "severely_damaged",
-    ].includes(String(parsed.condition))
-      ? (parsed.condition as AssessmentResult["condition"])
-      : "functional";
-    const rawNotes = typeof parsed.condition_notes === "string" && parsed.condition_notes.trim()
-      ? parsed.condition_notes.trim().slice(0, 500)
-      : "Condition assessed via vision model.";
-    const rawRecoverable =
-      typeof parsed.material_recoverable === "boolean" ? parsed.material_recoverable : true;
-    const rawConf = ["high", "medium", "low"].includes(String(parsed.confidence))
-      ? (parsed.confidence as "high" | "medium" | "low")
-      : "medium";
-
-    const isLowConfidence = rawConf === "low" || rawType === "Other Electronics / Unlisted" || rawType.toLowerCase().includes("unknown");
-
-    return {
-      is_electronic: true,
-      item_type: rawType,
-      brand: rawBrand,
-      estimated_age_years: rawAge,
-      condition: rawCondition,
-      condition_notes: rawNotes,
-      material_recoverable: rawRecoverable,
-      confidence: rawConf,
-      is_low_confidence: isLowConfidence,
-    };
-  };
-
-  try {
-    const cleaned = text.replace(/```json\s*|```/g, "").trim();
-    const parsed = JSON.parse(cleaned);
-    if (parsed && typeof parsed === "object") {
-      return sanitizeParsed(parsed);
-    }
-  } catch {
-    const match = text.match(/\{[\s\S]*\}/);
-    if (match) {
-      try {
-        const parsed = JSON.parse(match[0]);
-        if (parsed && typeof parsed === "object") {
-          return sanitizeParsed(parsed);
-        }
-      } catch {
-        return null;
-      }
-    }
-  }
-  return null;
-}
-
 /**
- * 1. Google Gemini Vision API Call with Thinking Controls & 12s Timeout
+ * 1. Google Gemini Single Model Vision Call with Model-Specific Thinking Settings
  */
-async function callGeminiVision(
+async function callSingleGeminiModel(
+  model: string,
   base64Data: string,
   mediaType: string,
-  modelOverride?: string | null
+  apiKey: string
 ): Promise<{ text: string; model: string } | { error: string }> {
-  const apiKey =
-    process.env.GEMINI_API_KEY ||
-    process.env.GOOGLE_AI_API_KEY ||
-    process.env.GOOGLE_API_KEY;
-  if (!apiKey || apiKey === "[SENSITIVE]") {
-    return { error: "GEMINI_API_KEY not configured or placeholder." };
-  }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 12000); // 12-second provider timeout
 
-  // Model selection: primary defaults to gemini-3.5-flash-lite (fastest) with gemini-3.6-flash fallback
-  const primaryModel = modelOverride || process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
-  const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.6-flash";
-  const models = Array.from(new Set([primaryModel, fallbackModel]));
+  try {
+    const generationConfig: Record<string, unknown> = {
+      responseMimeType: "application/json",
+      temperature: 0.1,
+    };
 
-  const errors: string[] = [];
-
-  for (const model of models) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000); // 12-second provider timeout
-
-    try {
-      const generationConfig: Record<string, unknown> = {
-        responseMimeType: "application/json",
-        temperature: 0.1,
+    // Configure model-specific thinking controls per Google official documentation:
+    // gemini-3.5-flash-lite supports minimal thinking for ultra-fast throughput.
+    // gemini-3.6-flash and 3.5-flash use "LOW" thinking level to maintain deep
+    // classification accuracy without output truncation or falling back to generic classes.
+    if (model === "gemini-3.5-flash-lite") {
+      generationConfig.thinkingConfig = {
+        thinkingLevel: "MINIMAL",
+        includeThoughts: false,
       };
-
-      // Set thinking to minimum for rapid classification
-      if (model.includes("gemini-3") || model.includes("gemini-2.5")) {
-        generationConfig.thinkingConfig = {
-          thinkingLevel: "MINIMAL",
-          includeThoughts: false,
-        };
-      }
-
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          signal: controller.signal,
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  { text: SYSTEM_PROMPT },
-                  {
-                    inlineData: {
-                      mimeType: mediaType,
-                      data: base64Data,
-                    },
-                  },
-                ],
-              },
-            ],
-            generationConfig,
-          }),
-        }
-      ).finally(() => clearTimeout(timeoutId));
-
-      if (!res.ok) {
-        const errText = await res.text();
-        const msg = `Gemini (${model}) ${res.status}: ${errText.slice(0, 180)}`;
-        errors.push(msg);
-        console.warn(msg);
-        continue;
-      }
-
-      const data = await res.json();
-      const text =
-        data.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text).filter(Boolean).join("") ||
-        data.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (text) {
-        return { text, model };
-      }
-      errors.push(`Gemini (${model}): empty candidate response`);
-    } catch (err) {
-      clearTimeout(timeoutId);
-      const isAbort = err instanceof Error && err.name === "AbortError";
-      const msg = isAbort
-        ? `Gemini (${model}) timed out after 12s`
-        : `Gemini (${model}) network exception: ${err instanceof Error ? err.message : String(err)}`;
-      errors.push(msg);
-      console.warn(msg);
+    } else if (model.includes("gemini-3.6") || model.includes("gemini-3.5-flash")) {
+      generationConfig.thinkingConfig = {
+        thinkingLevel: "LOW",
+        includeThoughts: false,
+      };
+    } else if (model.includes("gemini-3") || model.includes("gemini-4")) {
+      generationConfig.thinkingConfig = {
+        thinkingLevel: "LOW",
+        includeThoughts: false,
+      };
     }
-  }
 
-  return { error: errors.join(" | ") || "All Gemini endpoints failed." };
-}
-
-/**
- * 2. Anthropic Vision API Call with 12s Timeout
- */
-async function callAnthropicVision(
-  base64Data: string,
-  mediaType: string
-): Promise<{ text: string; model: string } | { error: string }> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey || apiKey === "[SENSITIVE]") {
-    return { error: "ANTHROPIC_API_KEY not configured or placeholder." };
-  }
-
-  const primaryModel = process.env.ANTHROPIC_MODEL || "claude-haiku-5-5";
-  const fallbackModel = "claude-sonnet-5-5";
-  const models = Array.from(new Set([primaryModel, fallbackModel]));
-
-  const errors: string[] = [];
-
-  for (const model of models) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
-
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-        },
+        headers: { "Content-Type": "application/json" },
         signal: controller.signal,
         body: JSON.stringify({
-          model,
-          max_tokens: 600,
-          messages: [
+          contents: [
             {
-              role: "user",
-              content: [
+              parts: [
+                { text: SYSTEM_PROMPT },
                 {
-                  type: "image",
-                  source: {
-                    type: "base64",
-                    media_type: mediaType,
+                  inlineData: {
+                    mimeType: mediaType,
                     data: base64Data,
                   },
                 },
-                {
-                  type: "text",
-                  text: SYSTEM_PROMPT,
-                },
               ],
             },
           ],
+          generationConfig,
         }),
-      }).finally(() => clearTimeout(timeoutId));
-
-      if (!res.ok) {
-        const errText = await res.text();
-        const msg = `Anthropic (${model}) ${res.status}: ${errText.slice(0, 180)}`;
-        errors.push(msg);
-        console.warn(msg);
-        continue;
       }
+    ).finally(() => clearTimeout(timeoutId));
 
-      const data = await res.json();
-      const text = data.content?.find(
-        (c: { type: string; text?: string }) => c.type === "text"
-      )?.text;
-      if (text) {
-        return { text, model };
-      }
-    } catch (err) {
-      clearTimeout(timeoutId);
-      const isAbort = err instanceof Error && err.name === "AbortError";
-      const msg = isAbort
-        ? `Anthropic (${model}) timed out after 12s`
-        : `Anthropic (${model}) error: ${err instanceof Error ? err.message : String(err)}`;
-      errors.push(msg);
-      console.warn(msg);
+    if (!res.ok) {
+      const errText = await res.text();
+      return { error: `Gemini (${model}) ${res.status}: ${errText.slice(0, 180)}` };
     }
-  }
 
-  return { error: errors.join(" | ") || "All Anthropic endpoints failed." };
+    const data = await res.json();
+    const text =
+      data.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text).filter(Boolean).join("") ||
+      data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (text) {
+      return { text, model };
+    }
+    return { error: `Gemini (${model}): empty candidate response` };
+  } catch (err) {
+    clearTimeout(timeoutId);
+    const isAbort = err instanceof Error && err.name === "AbortError";
+    return {
+      error: isAbort
+        ? `Gemini (${model}) timed out after 12s`
+        : `Gemini (${model}) network exception: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
 }
 
 /**
- * 3. OpenAI Vision API Call with 12s Timeout
+ * 2. Anthropic Single Model Vision API Call with 12s Timeout
  */
-async function callOpenAIVision(
+async function callSingleAnthropicModel(
+  model: string,
   base64Data: string,
-  mediaType: string
+  mediaType: string,
+  apiKey: string
 ): Promise<{ text: string; model: string } | { error: string }> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey || apiKey === "[SENSITIVE]") {
-    return { error: "OPENAI_API_KEY not configured or placeholder." };
-  }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 12000);
 
-  const imageUrl = `data:${mediaType};base64,${base64Data}`;
-  const primaryModel = process.env.OPENAI_MODEL || "gpt-4o-mini";
-  const fallbackModel = "gpt-4o";
-  const models = Array.from(new Set([primaryModel, fallbackModel]));
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model,
+        max_tokens: 600,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: mediaType,
+                  data: base64Data,
+                },
+              },
+              {
+                type: "text",
+                text: SYSTEM_PROMPT,
+              },
+            ],
+          },
+        ],
+      }),
+    }).finally(() => clearTimeout(timeoutId));
 
-  const errors: string[] = [];
-
-  for (const model of models) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
-
-    try {
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        signal: controller.signal,
-        body: JSON.stringify({
-          model,
-          max_tokens: 600,
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            {
-              role: "user",
-              content: [
-                { type: "text", text: "Classify item." },
-                { type: "image_url", image_url: { url: imageUrl, detail: "low" } },
-              ],
-            },
-          ],
-        }),
-      }).finally(() => clearTimeout(timeoutId));
-
-      if (!res.ok) {
-        const errText = await res.text();
-        const msg = `OpenAI (${model}) ${res.status}: ${errText.slice(0, 180)}`;
-        errors.push(msg);
-        console.warn(msg);
-        continue;
-      }
-
-      const data = await res.json();
-      const content = data.choices?.[0]?.message?.content;
-      if (content) {
-        return { text: content, model };
-      }
-    } catch (err) {
-      clearTimeout(timeoutId);
-      const isAbort = err instanceof Error && err.name === "AbortError";
-      const msg = isAbort
-        ? `OpenAI (${model}) timed out after 12s`
-        : `OpenAI (${model}) error: ${err instanceof Error ? err.message : String(err)}`;
-      errors.push(msg);
-      console.warn(msg);
+    if (!res.ok) {
+      const errText = await res.text();
+      return { error: `Anthropic (${model}) ${res.status}: ${errText.slice(0, 180)}` };
     }
-  }
 
-  return { error: errors.join(" | ") || "All OpenAI endpoints failed." };
+    const data = await res.json();
+    const text = data.content?.find(
+      (c: { type: string; text?: string }) => c.type === "text"
+    )?.text;
+
+    if (text) {
+      return { text, model };
+    }
+    return { error: `Anthropic (${model}): empty content` };
+  } catch (err) {
+    clearTimeout(timeoutId);
+    const isAbort = err instanceof Error && err.name === "AbortError";
+    return {
+      error: isAbort
+        ? `Anthropic (${model}) timed out after 12s`
+        : `Anthropic (${model}) error: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
+/**
+ * 3. OpenAI Single Model Vision API Call with 12s Timeout
+ */
+async function callSingleOpenAIModel(
+  model: string,
+  base64Data: string,
+  mediaType: string,
+  apiKey: string
+): Promise<{ text: string; model: string } | { error: string }> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 12000);
+  const imageUrl = `data:${mediaType};base64,${base64Data}`;
+
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model,
+        max_tokens: 600,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Classify item." },
+              { type: "image_url", image_url: { url: imageUrl, detail: "low" } },
+            ],
+          },
+        ],
+      }),
+    }).finally(() => clearTimeout(timeoutId));
+
+    if (!res.ok) {
+      const errText = await res.text();
+      return { error: `OpenAI (${model}) ${res.status}: ${errText.slice(0, 180)}` };
+    }
+
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (content) {
+      return { text: content, model };
+    }
+    return { error: `OpenAI (${model}): empty choices` };
+  } catch (err) {
+    clearTimeout(timeoutId);
+    const isAbort = err instanceof Error && err.name === "AbortError";
+    return {
+      error: isAbort
+        ? `OpenAI (${model}) timed out after 12s`
+        : `OpenAI (${model}) error: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -440,7 +328,7 @@ export async function POST(req: NextRequest) {
       crypto.createHash("sha256").update(Buffer.from(cleanBase64, "base64")).digest("hex");
 
     // 5. Result Caching: Check in-memory cache first
-    const memCache = inMemoryCache.get(imageHash);
+    const memCache = getMemoryCache(imageHash);
     if (memCache) {
       return NextResponse.json({
         success: true,
@@ -453,25 +341,29 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Check persistent Supabase cache (event_log)
+    // Check dedicated ai_scan_cache table in Supabase
     try {
       const { data: dbCache } = await supabase
-        .from("event_log")
-        .select("payload_json")
-        .eq("event_type", "AI_SCAN_CACHE")
-        .contains("payload_json", { image_hash: imageHash })
-        .order("created_at", { ascending: false })
-        .limit(1)
+        .from("ai_scan_cache")
+        .select("image_sha256, provider, model, result, hit_count")
+        .eq("image_sha256", imageHash)
         .maybeSingle();
 
-      if (dbCache?.payload_json && typeof dbCache.payload_json === "object" && "result" in dbCache.payload_json) {
-        const cachedPayload = dbCache.payload_json as Record<string, unknown>;
-        const cachedResult = cachedPayload.result as AssessmentResult;
-        const cachedProvider = typeof cachedPayload.provider === "string" ? cachedPayload.provider : "gemini";
-        const cachedModel = typeof cachedPayload.model === "string" ? cachedPayload.model : "cached";
+      if (dbCache && dbCache.result && typeof dbCache.result === "object") {
+        const cachedPayload = dbCache.result as Record<string, unknown>;
+        const cachedResult = cachedPayload as unknown as AssessmentResult;
+        const cachedProvider = typeof dbCache.provider === "string" ? dbCache.provider : "gemini";
+        const cachedModel = typeof dbCache.model === "string" ? dbCache.model : "cached";
+
+        // Increment hit_count asynchronously
+        supabase
+          .from("ai_scan_cache")
+          .update({ hit_count: (dbCache.hit_count || 1) + 1 })
+          .eq("image_sha256", imageHash)
+          .then();
 
         // Seed into memory cache
-        inMemoryCache.set(imageHash, {
+        setMemoryCache(imageHash, {
           result: cachedResult,
           provider: cachedProvider,
           model: cachedModel,
@@ -490,113 +382,241 @@ export async function POST(req: NextRequest) {
         });
       }
     } catch (cacheErr) {
-      console.warn("[AI Cache] Supabase lookup notice:", cacheErr);
+      console.warn("[AI Cache] ai_scan_cache lookup notice:", cacheErr);
     }
 
-    // 6. Provider Pipeline Execution
+    // 6. Provider Pipeline Execution with Strict Quality Gate
     const modelOverride = req.headers.get("x-model-override");
-    const providerAttempts: Array<{ provider: string; model?: string; status: "success" | "error"; error?: string }> = [];
-    let successResult: { text: string; provider: string; model: string } | null = null;
+    const providerOverride = req.headers.get("x-provider-override");
 
-    // 1. Gemini Vision
-    const geminiRes = await callGeminiVision(cleanBase64, mediaType, modelOverride);
-    if ("text" in geminiRes) {
-      providerAttempts.push({ provider: "gemini", model: geminiRes.model, status: "success" });
-      successResult = { text: geminiRes.text, provider: "gemini", model: geminiRes.model };
+    const providerAttempts: Array<{
+      provider: string;
+      model?: string;
+      status: "success" | "error";
+      error?: string;
+      item_type?: string;
+    }> = [];
+
+    let acceptedResult: {
+      parsed: AssessmentResult;
+      provider: string;
+      model: string;
+    } | null = null;
+
+    // Define provider candidate sequence:
+    // 1. Primary Gemini model (defaults to gemini-3.5-flash-lite)
+    // 2. Secondary Gemini fallback model (defaults to gemini-3.6-flash)
+    // 3. Anthropic Claude (claude-haiku-5-5 / claude-sonnet-5-5)
+    // 4. OpenAI (gpt-4o-mini / gpt-4o)
+
+    const geminiKey =
+      process.env.GEMINI_API_KEY ||
+      process.env.GOOGLE_AI_API_KEY ||
+      process.env.GOOGLE_API_KEY;
+
+    const anthropicKey = process.env.ANTHROPIC_API_KEY;
+    const openAiKey = process.env.OPENAI_API_KEY;
+
+    interface CandidateProvider {
+      provider: "gemini" | "anthropic" | "openai";
+      model: string;
+      execute: () => Promise<{ text: string; model: string } | { error: string }>;
+    }
+
+    const candidates: CandidateProvider[] = [];
+
+    if (modelOverride) {
+      // Direct model override (e.g. for benchmark testing)
+      if (modelOverride.includes("claude") && anthropicKey && anthropicKey !== "[SENSITIVE]") {
+        candidates.push({
+          provider: "anthropic",
+          model: modelOverride,
+          execute: () => callSingleAnthropicModel(modelOverride, cleanBase64, mediaType, anthropicKey),
+        });
+      } else if (modelOverride.includes("gpt") && openAiKey && openAiKey !== "[SENSITIVE]") {
+        candidates.push({
+          provider: "openai",
+          model: modelOverride,
+          execute: () => callSingleOpenAIModel(modelOverride, cleanBase64, mediaType, openAiKey),
+        });
+      } else if (geminiKey && geminiKey !== "[SENSITIVE]") {
+        candidates.push({
+          provider: "gemini",
+          model: modelOverride,
+          execute: () => callSingleGeminiModel(modelOverride, cleanBase64, mediaType, geminiKey),
+        });
+      }
     } else {
-      providerAttempts.push({ provider: "gemini", status: "error", error: geminiRes.error });
-    }
+      // Normal multi-provider fallback order
+      if ((!providerOverride || providerOverride === "gemini") && geminiKey && geminiKey !== "[SENSITIVE]") {
+        const primaryGemini = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
+        const fallbackGemini = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.6-flash";
 
-    // 2. Anthropic Vision Fallback
-    if (!successResult) {
-      const anthropicRes = await callAnthropicVision(cleanBase64, mediaType);
-      if ("text" in anthropicRes) {
-        providerAttempts.push({ provider: "anthropic", model: anthropicRes.model, status: "success" });
-        successResult = { text: anthropicRes.text, provider: "anthropic", model: anthropicRes.model };
-      } else {
-        providerAttempts.push({ provider: "anthropic", status: "error", error: anthropicRes.error });
+        candidates.push({
+          provider: "gemini",
+          model: primaryGemini,
+          execute: () => callSingleGeminiModel(primaryGemini, cleanBase64, mediaType, geminiKey),
+        });
+
+        if (fallbackGemini !== primaryGemini) {
+          candidates.push({
+            provider: "gemini",
+            model: fallbackGemini,
+            execute: () => callSingleGeminiModel(fallbackGemini, cleanBase64, mediaType, geminiKey),
+          });
+        }
+      }
+
+      if ((!providerOverride || providerOverride === "anthropic") && anthropicKey && anthropicKey !== "[SENSITIVE]") {
+        const primaryAnthropic = process.env.ANTHROPIC_MODEL || "claude-haiku-5-5";
+        candidates.push({
+          provider: "anthropic",
+          model: primaryAnthropic,
+          execute: () => callSingleAnthropicModel(primaryAnthropic, cleanBase64, mediaType, anthropicKey),
+        });
+      }
+
+      if ((!providerOverride || providerOverride === "openai") && openAiKey && openAiKey !== "[SENSITIVE]") {
+        const primaryOpenAI = process.env.OPENAI_MODEL || "gpt-4o-mini";
+        candidates.push({
+          provider: "openai",
+          model: primaryOpenAI,
+          execute: () => callSingleOpenAIModel(primaryOpenAI, cleanBase64, mediaType, openAiKey),
+        });
       }
     }
 
-    // 3. OpenAI Vision Fallback
-    if (!successResult) {
-      const openAiRes = await callOpenAIVision(cleanBase64, mediaType);
-      if ("text" in openAiRes) {
-        providerAttempts.push({ provider: "openai", model: openAiRes.model, status: "success" });
-        successResult = { text: openAiRes.text, provider: "openai", model: openAiRes.model };
-      } else {
-        providerAttempts.push({ provider: "openai", status: "error", error: openAiRes.error });
+    // Execute candidate sequence with Quality Gate
+    for (const candidate of candidates) {
+      const callRes = await candidate.execute();
+
+      if ("error" in callRes) {
+        providerAttempts.push({
+          provider: candidate.provider,
+          model: candidate.model,
+          status: "error",
+          error: callRes.error,
+        });
+        continue;
       }
+
+      // Candidate returned text — now enforce strict Quality Gate
+      const parsed = extractJSON(callRes.text);
+
+      if (!parsed) {
+        const parseMsg = "Quality gate failed: invalid or unparseable JSON output";
+        console.warn(`[Quality Gate] ${candidate.provider} (${candidate.model}): ${parseMsg}`);
+        providerAttempts.push({
+          provider: candidate.provider,
+          model: candidate.model,
+          status: "error",
+          error: parseMsg,
+        });
+        continue; // Fall through to next candidate!
+      }
+
+      if (!isHighQualityAssessment(parsed)) {
+        const lowInfoMsg = `Quality gate failed: low-information result "${parsed.item_type}"`;
+        console.warn(`[Quality Gate] ${candidate.provider} (${candidate.model}): ${lowInfoMsg}. Falling through to next provider.`);
+        providerAttempts.push({
+          provider: candidate.provider,
+          model: candidate.model,
+          status: "error",
+          error: lowInfoMsg,
+          item_type: parsed.item_type,
+        });
+        continue; // Fall through to next candidate!
+      }
+
+      // Passed Quality Gate!
+      providerAttempts.push({
+        provider: candidate.provider,
+        model: candidate.model,
+        status: "success",
+        item_type: parsed.item_type,
+      });
+
+      acceptedResult = {
+        parsed,
+        provider: candidate.provider,
+        model: candidate.model,
+      };
+      break; // Successfully obtained high-quality assessment!
     }
 
     const latencyMs = Date.now() - startTime;
 
-    // 7. Parse and Validate Output
-    if (successResult) {
-      const parsed = extractJSON(successResult.text);
-      if (parsed) {
-        if (!parsed.is_electronic) {
-          return NextResponse.json({
-            success: false,
-            not_electronic: true,
-            provider: successResult.provider,
-            model: successResult.model,
-            latency_ms: latencyMs,
-            message:
-              "RE:LOOP currently only assesses electronic items. This photo doesn't appear to show an electronic device - please upload a photo of an electronic item instead.",
-            detected_object: parsed.rejection_reason || "Non-electronic item",
-            provider_attempts: providerAttempts,
-          });
-        }
+    // 7. Process Accepted High-Quality Result
+    if (acceptedResult) {
+      const { parsed, provider, model } = acceptedResult;
 
-        // Cache genuine AI assessment result into in-memory cache and Supabase event_log
-        inMemoryCache.set(imageHash, {
+      // Non-electronic rejection
+      if (!parsed.is_electronic) {
+        return NextResponse.json({
+          success: false,
+          not_electronic: true,
+          provider,
+          model,
+          latency_ms: latencyMs,
+          message:
+            "RE:LOOP currently only assesses electronic items. This photo doesn't appear to show an electronic device - please upload a photo of an electronic item instead.",
+          detected_object: parsed.rejection_reason || "Non-electronic item",
+          provider_attempts: providerAttempts,
+        });
+      }
+
+      // Cache genuine high/medium confidence AI assessment result into in-memory cache and dedicated ai_scan_cache table
+      if (
+        parsed.is_electronic &&
+        (parsed.confidence === "high" || parsed.confidence === "medium") &&
+        isHighQualityAssessment(parsed)
+      ) {
+        setMemoryCache(imageHash, {
           result: parsed,
-          provider: successResult.provider,
-          model: successResult.model,
+          provider,
+          model,
         });
 
         try {
           await supabase
-            .from("event_log")
-            .insert({
-              event_type: "AI_SCAN_CACHE",
-              entity_type: "scan",
-              entity_id: "00000000-0000-0000-0000-000000000000",
-              actor_role: "SYSTEM",
-              payload_json: {
-                image_hash: imageHash,
-                provider: successResult.provider,
-                model: successResult.model,
-                result: parsed,
-                timestamp: new Date().toISOString(),
-              } as unknown as Json,
-            });
+            .from("ai_scan_cache")
+            .upsert(
+              {
+                image_sha256: imageHash,
+                provider,
+                model,
+                result: parsed as unknown as Json,
+                created_at: new Date().toISOString(),
+                hit_count: 1,
+              },
+              { onConflict: "image_sha256" }
+            );
         } catch (dbErr) {
-          console.warn("[AI Cache] Persistence notice:", dbErr);
+          console.warn("[AI Cache] ai_scan_cache persistence notice:", dbErr);
         }
-
-        return NextResponse.json({
-          success: true,
-          cached: false,
-          provider: successResult.provider,
-          model: successResult.model,
-          latency_ms: latencyMs,
-          manual_fallback: false,
-          data: parsed,
-          provider_attempts: providerAttempts,
-        });
       }
+
+      return NextResponse.json({
+        success: true,
+        cached: false,
+        provider,
+        model,
+        latency_ms: latencyMs,
+        manual_fallback: false,
+        data: parsed,
+        provider_attempts: providerAttempts,
+      });
     }
 
-    // 8. Explicit fallback if all providers failed
+    // 8. Explicit fallback if all providers failed or returned low-information results
+    // Notice: We strictly NEVER attribute this to any provider ("Analyzed by <provider>")
     return NextResponse.json({
       success: true,
       provider: "manual_fallback",
       model: "none",
       latency_ms: latencyMs,
       manual_fallback: true,
-      message: "AI analysis unavailable, using guided manual entry",
+      message: "AI analysis unavailable or returned low-information result. Using guided manual entry.",
       provider_attempts: providerAttempts,
       data: {
         item_type: "Other Electronics / Unlisted",

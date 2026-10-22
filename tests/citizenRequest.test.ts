@@ -105,12 +105,17 @@ describe("PS-013 Citizen Tracking & Privacy Tests", () => {
     assert.ok(!publicArea.includes("Building B"), "Building name must not appear in public area");
   });
 
-  it("validates token format requirement", () => {
-    const tokenRegex = /^RLP-HYD-[A-F0-9]{8}$/;
-    const validSample = "RLP-HYD-A1B2C3D4";
-    assert.ok(tokenRegex.test(validSample), "Token should match standard format");
+  it("validates token format requirement", async () => {
+    const { isValidTrackingToken, generateSecureTrackingToken } = await import("../lib/tracking-token.ts");
+    const freshToken = generateSecureTrackingToken();
+    assert.ok(isValidTrackingToken(freshToken), "Fresh generated token must be valid");
+    assert.ok(freshToken.startsWith("RLP-HYD-"), "Token must start with RLP-HYD- prefix");
+    assert.equal(freshToken.length, 18, "Token must be exactly 18 characters (RLP-HYD- + 10 Base32 chars)");
 
-    const invalidSample = "RLP-HYD-INVALID";
-    assert.equal(tokenRegex.test(invalidSample), false);
+    const validDemo = "QR-REQ-HYD-001";
+    assert.ok(isValidTrackingToken(validDemo), "Demo token must be valid");
+
+    const invalidSample = "RLP-HYD-INVALID-TOO-LONG-CHARS";
+    assert.equal(isValidTrackingToken(invalidSample), false);
   });
 });

@@ -4,8 +4,8 @@ import { supabaseAdmin as supabase } from "@/lib/supabase";
 import { resolveZoneByCoordinates, getCollectionZones } from "@/lib/zone-resolver";
 import { calculateCircularImpact } from "@/lib/impact-calculator";
 import { checkRateLimit } from "@/lib/rate-limiter";
+import { generateSecureTrackingToken, isDemoTrackingToken } from "@/lib/tracking-token";
 import type { CollectionRequestStatus, CollectionRequestPriority } from "@/types/database";
-import crypto from "crypto";
 
 const RequestItemSchema = z
   .object({
@@ -34,16 +34,6 @@ const CreateRequestSchema = z
     linked_item_id: z.string().uuid().nullable().optional(),
   })
   .strict();
-
-/**
- * Generate cryptographically random, at least 128-bit, URL-safe tracking token.
- * Example: RLP-c9f28a7b1e45d603a1b2c3d4e5f60718
- */
-function generateSecureTrackingToken(): string {
-  // 16 bytes = 128 bits of cryptographic entropy
-  const randomHex = crypto.randomBytes(16).toString("hex");
-  return `RLP-${randomHex}`;
-}
 
 export async function POST(req: NextRequest) {
   try {
@@ -312,10 +302,10 @@ export async function GET(req: NextRequest) {
       if (zone) zoneInfo = zone;
     }
 
-    // Fetch items (non-PII hardware specs)
+    // Fetch items (non-PII hardware specs) with circular pathway recommendations if linked
     const { data: items } = await supabase
       .from("items")
-      .select("id, item_type, brand, condition, waste_avoided_kg, co2e_saved_est")
+      .select("id, item_type, brand, condition, waste_avoided_kg, co2e_saved_est, recommendations(recommended_action, repairability_score)")
       .eq("request_id", request.id);
 
     // Fetch verified collection records (actual weights and timestamps only)
@@ -333,10 +323,7 @@ export async function GET(req: NextRequest) {
         : (zoneInfo?.name ? `${zoneInfo.name}, Hyderabad` : "Hyderabad Metropolitan Area");
 
     // Check if token is one of the designated pre-seeded demo tokens
-    const isDemoToken =
-      request.is_simulated ||
-      request.qr_token?.startsWith("QR-REQ-HYD-") ||
-      request.qr_token?.startsWith("QR-DEMO-HYD-");
+    const isDemoToken = request.is_simulated || isDemoTrackingToken(request.qr_token);
 
     return NextResponse.json({
       success: true,
