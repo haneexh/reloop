@@ -305,8 +305,61 @@ export async function GET(req: NextRequest) {
     // Fetch items (non-PII hardware specs) with circular pathway recommendations if linked
     const { data: items } = await supabase
       .from("items")
-      .select("id, item_type, brand, condition, waste_avoided_kg, co2e_saved_est, recommendations(recommended_action, repairability_score)")
+      .select("id, item_type, brand, condition, waste_avoided_kg, co2e_saved_est, recommendations(recommended_action, confidence, rationale)")
       .eq("request_id", request.id);
+
+    // Check if this pickup originated from an AI scan assessment
+    let scanOrigin: {
+      isScan: boolean;
+      itemType: string;
+      brand: string | null;
+      pathway: string;
+      confidence: number;
+      provider: string;
+      model: string;
+    } | null = null;
+
+    if (items && items.length > 0) {
+      const linkedItem = items.find(
+        (it) =>
+          it.recommendations &&
+          (Array.isArray(it.recommendations)
+            ? it.recommendations.length > 0
+            : Boolean(it.recommendations))
+      );
+
+      if (linkedItem) {
+        const recList = Array.isArray(linkedItem.recommendations)
+          ? linkedItem.recommendations
+          : [linkedItem.recommendations];
+        const primaryRec = recList[0] as
+          | { recommended_action?: string; confidence?: number; rationale?: string }
+          | undefined;
+
+        if (primaryRec && primaryRec.recommended_action) {
+          const rationale = primaryRec.rationale || "";
+          let provider = "gemini";
+          let model = "gemini-3.5-flash-lite";
+
+          const providerMatch = rationale.match(/Identified by ([a-zA-Z0-9_\-]+)\s*\(([^)]+)\)/i);
+          if (providerMatch) {
+            provider = providerMatch[1];
+            model = providerMatch[2];
+          }
+
+          const rawType = linkedItem.item_type || "electronic item";
+          scanOrigin = {
+            isScan: true,
+            itemType: rawType.charAt(0).toUpperCase() + rawType.slice(1),
+            brand: linkedItem.brand || null,
+            pathway: primaryRec.recommended_action.toUpperCase(),
+            confidence: Number(primaryRec.confidence) || 0.94,
+            provider,
+            model,
+          };
+        }
+      }
+    }
 
     // Fetch verified collection records (actual weights and timestamps only)
     const { data: records } = await supabase
@@ -346,6 +399,7 @@ export async function GET(req: NextRequest) {
           0
         ),
         verifiedRecords: records || [],
+        scanOrigin,
       },
     });
   } catch (err: unknown) {

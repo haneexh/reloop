@@ -24,6 +24,10 @@ export interface RouteStopDetail {
   is_collected?: boolean;
   actual_weight_kg?: number | null;
   collected_at?: string | null;
+  ai_item_type?: string | null;
+  ai_brand?: string | null;
+  ai_pathway?: string | null;
+  ai_confidence?: number | null;
 }
 
 export interface RouteProgress {

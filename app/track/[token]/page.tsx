@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import QRCode from "qrcode";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/Card";
@@ -14,6 +14,10 @@ interface TrackItem {
   condition: string | null;
   waste_avoided_kg: number | null;
   co2e_saved_est: number | null;
+  recommendations?: Array<{
+    recommended_action: string;
+    repairability_score?: number | null;
+  }> | null;
 }
 
 interface VerifiedRecord {
@@ -22,9 +26,20 @@ interface VerifiedRecord {
   verification_method: string | null;
 }
 
+interface ScanOrigin {
+  isScan: boolean;
+  itemType: string;
+  brand: string | null;
+  pathway: string;
+  confidence: number;
+  provider: string;
+  model: string;
+}
+
 interface TrackData {
   id: string;
   qrToken: string;
+  isDemo?: boolean;
   status: string;
   priority: string;
   pickupDate: string | null;
@@ -37,6 +52,7 @@ interface TrackData {
   totalItems: number;
   estimatedWeightKg: number;
   verifiedRecords: VerifiedRecord[];
+  scanOrigin?: ScanOrigin | null;
 }
 
 const TIMELINE_STAGES = [
@@ -137,8 +153,70 @@ export default function TrackRequestPage({
     }
   }, [token]);
 
-  // Determine stage progression index based on status and certified collection record
-  const getStageIndex = (status: string, hasVerifiedRecord: boolean) => {
+  // Construct timeline stages dynamically. If this request originated from an AI scan assessment,
+  // the timeline begins with AI identification and circular pathway decision milestones.
+  const stages = useMemo(() => {
+    if (data?.scanOrigin) {
+      const so = data.scanOrigin;
+      const itemLabel = `Item identified by AI: ${so.itemType}${so.brand ? `, ${so.brand}` : ""} (${so.provider}, ${so.model})`;
+      return [
+        {
+          key: "item_identified",
+          label: itemLabel,
+          description: "Hardware device recognized and verified via vision AI.",
+        },
+        {
+          key: "pathway_decided",
+          label: `Pathway decided: ${so.pathway}`,
+          description: "Optimal circular pathway evaluated based on PP-RI repairability score and material recovery value.",
+        },
+        {
+          key: "pending",
+          label: "Pickup requested",
+          description: "Request logged and placed in neighborhood dispatch queue.",
+        },
+        {
+          key: "collected",
+          label: "Collected and weighed",
+          description: "Items received and verified at your doorstep with certified digital scale.",
+        },
+        {
+          key: "sent_to_facility",
+          label: "At facility",
+          description: "Transferred to an accredited recycling and recovery partner facility.",
+        },
+        {
+          key: "recovered",
+          label: "Recovered",
+          description: "Material fractions and verified circular impact recorded.",
+        },
+      ];
+    }
+
+    return TIMELINE_STAGES;
+  }, [data?.scanOrigin]);
+
+  // Determine stage progression index based on status, verified records, and whether request came from a scan
+  const getStageIndex = (status: string, hasVerifiedRecord: boolean, isScan: boolean) => {
+    if (isScan) {
+      switch (status) {
+        case "pending":
+        case "scheduled":
+        case "assigned":
+          return 2; // "Pickup requested" is current, AI stages 0 & 1 completed
+        case "collected":
+        case "weighed":
+        case "sorted":
+          return 3; // "Collected and weighed"
+        case "sent_to_facility":
+          return 4; // "At facility"
+        case "recovered":
+          return 5; // "Recovered"
+        default:
+          return 2;
+      }
+    }
+
     switch (status) {
       case "pending":
         return 1;
@@ -161,7 +239,11 @@ export default function TrackRequestPage({
   };
 
   const currentStageIndex = data
-    ? getStageIndex(data.status, Boolean(data.verifiedRecords && data.verifiedRecords.length > 0))
+    ? getStageIndex(
+        data.status,
+        Boolean(data.verifiedRecords && data.verifiedRecords.length > 0),
+        Boolean(data.scanOrigin)
+      )
     : 0;
 
   const handleCopyCode = () => {
@@ -250,7 +332,7 @@ export default function TrackRequestPage({
                   Current Status
                 </span>
                 <span className="text-xl font-display font-bold text-[#151817] capitalize">
-                  {TIMELINE_STAGES[currentStageIndex]?.label || data.status.replace(/_/g, " ")}
+                  {stages[currentStageIndex]?.label || data.status.replace(/_/g, " ")}
                 </span>
               </div>
               <Badge variant="success" size="md">
@@ -259,7 +341,7 @@ export default function TrackRequestPage({
             </div>
 
             <p className="text-xs sm:text-sm text-[#151817] leading-relaxed">
-              {TIMELINE_STAGES[currentStageIndex]?.description}
+              {stages[currentStageIndex]?.description}
             </p>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs pt-2 font-mono">
@@ -297,7 +379,7 @@ export default function TrackRequestPage({
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {TIMELINE_STAGES.map((st, idx) => {
+                {stages.map((st, idx) => {
                   const isCompleted = idx < currentStageIndex;
                   const isCurrent = idx === currentStageIndex;
 

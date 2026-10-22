@@ -7,6 +7,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import { supabaseAdmin as supabase } from "@/lib/supabase";
 import { checkRateLimit } from "@/lib/rate-limiter";
+import { getOperatorSession } from "@/lib/operator-auth";
 import type { Json } from "@/types/database";
 
 const SYSTEM_PROMPT = `You are a precision circular economy hardware assessor for RE:LOOP.
@@ -327,62 +328,82 @@ export async function POST(req: NextRequest) {
       validation.data.imageHash ||
       crypto.createHash("sha256").update(Buffer.from(cleanBase64, "base64")).digest("hex");
 
-    // 5. Result Caching: Check in-memory cache first
-    const memCache = getMemoryCache(imageHash);
-    if (memCache) {
-      return NextResponse.json({
-        success: true,
-        cached: true,
-        provider: memCache.provider,
-        model: memCache.model,
-        latency_ms: Date.now() - startTime,
-        data: memCache.result,
-        provider_attempts: [{ provider: memCache.provider, model: memCache.model, status: "success", cached: true }],
-      });
-    }
+    // 5. Result Caching & Operator Diagnostic Test Hooks
+    // Test hooks are strictly disabled in production unless an authenticated operator session is present
+    const operatorSession = getOperatorSession(req);
+    const isOperator = operatorSession !== null;
+    const bypassCache = isOperator && req.headers.get("x-bypass-cache") === "true";
+    const forceFailPrimary =
+      isOperator &&
+      (req.headers.get("x-force-fail-primary") === "true" ||
+        req.headers.get("x-simulate-failure") === "primary");
+    const forceFailAll =
+      isOperator &&
+      (req.headers.get("x-force-fail-all") === "true" ||
+        req.headers.get("x-simulate-failure") === "all");
+    const forceFailModelsRaw = isOperator ? (req.headers.get("x-force-fail-models") || "") : "";
+    const forceFailModels = forceFailModelsRaw
+      ? forceFailModelsRaw.split(",").map((s) => s.trim().toLowerCase())
+      : [];
 
-    // Check dedicated ai_scan_cache table in Supabase
-    try {
-      const { data: dbCache } = await supabase
-        .from("ai_scan_cache")
-        .select("image_sha256, provider, model, result, hit_count")
-        .eq("image_sha256", imageHash)
-        .maybeSingle();
-
-      if (dbCache && dbCache.result && typeof dbCache.result === "object") {
-        const cachedPayload = dbCache.result as Record<string, unknown>;
-        const cachedResult = cachedPayload as unknown as AssessmentResult;
-        const cachedProvider = typeof dbCache.provider === "string" ? dbCache.provider : "gemini";
-        const cachedModel = typeof dbCache.model === "string" ? dbCache.model : "cached";
-
-        // Increment hit_count asynchronously
-        supabase
-          .from("ai_scan_cache")
-          .update({ hit_count: (dbCache.hit_count || 1) + 1 })
-          .eq("image_sha256", imageHash)
-          .then();
-
-        // Seed into memory cache
-        setMemoryCache(imageHash, {
-          result: cachedResult,
-          provider: cachedProvider,
-          model: cachedModel,
-        });
-
+    if (!bypassCache) {
+      // Check in-memory cache first
+      const memCache = getMemoryCache(imageHash);
+      if (memCache) {
         return NextResponse.json({
           success: true,
           cached: true,
-          provider: cachedProvider,
-          model: cachedModel,
+          provider: memCache.provider,
+          model: memCache.model,
           latency_ms: Date.now() - startTime,
-          data: cachedResult,
-          provider_attempts: [
-            { provider: cachedProvider, model: cachedModel, status: "success", cached: true },
-          ],
+          data: memCache.result,
+          provider_attempts: [{ provider: memCache.provider, model: memCache.model, status: "success", cached: true }],
         });
       }
-    } catch (cacheErr) {
-      console.warn("[AI Cache] ai_scan_cache lookup notice:", cacheErr);
+
+      // Check dedicated ai_scan_cache table in Supabase
+      try {
+        const { data: dbCache } = await supabase
+          .from("ai_scan_cache")
+          .select("image_sha256, provider, model, result, hit_count")
+          .eq("image_sha256", imageHash)
+          .maybeSingle();
+
+        if (dbCache && dbCache.result && typeof dbCache.result === "object") {
+          const cachedPayload = dbCache.result as Record<string, unknown>;
+          const cachedResult = cachedPayload as unknown as AssessmentResult;
+          const cachedProvider = typeof dbCache.provider === "string" ? dbCache.provider : "gemini";
+          const cachedModel = typeof dbCache.model === "string" ? dbCache.model : "cached";
+
+          // Increment hit_count asynchronously
+          supabase
+            .from("ai_scan_cache")
+            .update({ hit_count: (dbCache.hit_count || 1) + 1 })
+            .eq("image_sha256", imageHash)
+            .then();
+
+          // Seed into memory cache
+          setMemoryCache(imageHash, {
+            result: cachedResult,
+            provider: cachedProvider,
+            model: cachedModel,
+          });
+
+          return NextResponse.json({
+            success: true,
+            cached: true,
+            provider: cachedProvider,
+            model: cachedModel,
+            latency_ms: Date.now() - startTime,
+            data: cachedResult,
+            provider_attempts: [
+              { provider: cachedProvider, model: cachedModel, status: "success", cached: true },
+            ],
+          });
+        }
+      } catch (cacheErr) {
+        console.warn("[AI Cache] ai_scan_cache lookup notice:", cacheErr);
+      }
     }
 
     // 6. Provider Pipeline Execution with Strict Quality Gate
@@ -405,9 +426,10 @@ export async function POST(req: NextRequest) {
 
     // Define provider candidate sequence:
     // 1. Primary Gemini model (defaults to gemini-3.5-flash-lite)
-    // 2. Secondary Gemini fallback model (defaults to gemini-3.6-flash)
-    // 3. Anthropic Claude (claude-haiku-5-5 / claude-sonnet-5-5)
-    // 4. OpenAI (gpt-4o-mini / gpt-4o)
+    // 2. Secondary Gemini fallback model (defaults to gemini-3.6-flash, LOW thinking)
+    // 3. Tertiary Gemini fallback model (defaults to gemini-3.5-flash, LOW thinking)
+    // 4. Anthropic Claude (claude-haiku-5-5 / claude-sonnet-5-5)
+    // 5. OpenAI (gpt-4o-mini / gpt-4o)
 
     const geminiKey =
       process.env.GEMINI_API_KEY ||
@@ -431,19 +453,31 @@ export async function POST(req: NextRequest) {
         candidates.push({
           provider: "anthropic",
           model: modelOverride,
-          execute: () => callSingleAnthropicModel(modelOverride, cleanBase64, mediaType, anthropicKey),
+          execute: () => {
+            if (forceFailAll) return Promise.resolve({ error: "[Simulated Failure] All models forced to fail via test hook" });
+            if (forceFailModels.includes(modelOverride.toLowerCase())) return Promise.resolve({ error: `[Simulated Failure] Model (${modelOverride}) forced to fail` });
+            return callSingleAnthropicModel(modelOverride, cleanBase64, mediaType, anthropicKey);
+          },
         });
       } else if (modelOverride.includes("gpt") && openAiKey && openAiKey !== "[SENSITIVE]") {
         candidates.push({
           provider: "openai",
           model: modelOverride,
-          execute: () => callSingleOpenAIModel(modelOverride, cleanBase64, mediaType, openAiKey),
+          execute: () => {
+            if (forceFailAll) return Promise.resolve({ error: "[Simulated Failure] All models forced to fail via test hook" });
+            if (forceFailModels.includes(modelOverride.toLowerCase())) return Promise.resolve({ error: `[Simulated Failure] Model (${modelOverride}) forced to fail` });
+            return callSingleOpenAIModel(modelOverride, cleanBase64, mediaType, openAiKey);
+          },
         });
       } else if (geminiKey && geminiKey !== "[SENSITIVE]") {
         candidates.push({
           provider: "gemini",
           model: modelOverride,
-          execute: () => callSingleGeminiModel(modelOverride, cleanBase64, mediaType, geminiKey),
+          execute: () => {
+            if (forceFailAll) return Promise.resolve({ error: "[Simulated Failure] All models forced to fail via test hook" });
+            if (forceFailModels.includes(modelOverride.toLowerCase())) return Promise.resolve({ error: `[Simulated Failure] Model (${modelOverride}) forced to fail` });
+            return callSingleGeminiModel(modelOverride, cleanBase64, mediaType, geminiKey);
+          },
         });
       }
     } else {
@@ -451,18 +485,40 @@ export async function POST(req: NextRequest) {
       if ((!providerOverride || providerOverride === "gemini") && geminiKey && geminiKey !== "[SENSITIVE]") {
         const primaryGemini = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
         const fallbackGemini = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.6-flash";
+        const tertiaryGemini = process.env.GEMINI_TERTIARY_MODEL || "gemini-3.5-flash";
 
         candidates.push({
           provider: "gemini",
           model: primaryGemini,
-          execute: () => callSingleGeminiModel(primaryGemini, cleanBase64, mediaType, geminiKey),
+          execute: () => {
+            if (forceFailAll) return Promise.resolve({ error: "[Simulated Failure] All models forced to fail via test hook" });
+            if (forceFailPrimary) return Promise.resolve({ error: `[Simulated Failure] Primary model (${primaryGemini}) forced to fail via test hook` });
+            if (forceFailModels.includes(primaryGemini.toLowerCase())) return Promise.resolve({ error: `[Simulated Failure] Model (${primaryGemini}) forced to fail via test hook` });
+            return callSingleGeminiModel(primaryGemini, cleanBase64, mediaType, geminiKey);
+          },
         });
 
         if (fallbackGemini !== primaryGemini) {
           candidates.push({
             provider: "gemini",
             model: fallbackGemini,
-            execute: () => callSingleGeminiModel(fallbackGemini, cleanBase64, mediaType, geminiKey),
+            execute: () => {
+              if (forceFailAll) return Promise.resolve({ error: "[Simulated Failure] All models forced to fail via test hook" });
+              if (forceFailModels.includes(fallbackGemini.toLowerCase())) return Promise.resolve({ error: `[Simulated Failure] Model (${fallbackGemini}) forced to fail via test hook` });
+              return callSingleGeminiModel(fallbackGemini, cleanBase64, mediaType, geminiKey);
+            },
+          });
+        }
+
+        if (tertiaryGemini !== primaryGemini && tertiaryGemini !== fallbackGemini) {
+          candidates.push({
+            provider: "gemini",
+            model: tertiaryGemini,
+            execute: () => {
+              if (forceFailAll) return Promise.resolve({ error: "[Simulated Failure] All models forced to fail via test hook" });
+              if (forceFailModels.includes(tertiaryGemini.toLowerCase())) return Promise.resolve({ error: `[Simulated Failure] Model (${tertiaryGemini}) forced to fail via test hook` });
+              return callSingleGeminiModel(tertiaryGemini, cleanBase64, mediaType, geminiKey);
+            },
           });
         }
       }
@@ -472,7 +528,11 @@ export async function POST(req: NextRequest) {
         candidates.push({
           provider: "anthropic",
           model: primaryAnthropic,
-          execute: () => callSingleAnthropicModel(primaryAnthropic, cleanBase64, mediaType, anthropicKey),
+          execute: () => {
+            if (forceFailAll) return Promise.resolve({ error: "[Simulated Failure] All models forced to fail via test hook" });
+            if (forceFailModels.includes(primaryAnthropic.toLowerCase())) return Promise.resolve({ error: `[Simulated Failure] Model (${primaryAnthropic}) forced to fail via test hook` });
+            return callSingleAnthropicModel(primaryAnthropic, cleanBase64, mediaType, anthropicKey);
+          },
         });
       }
 
@@ -481,7 +541,11 @@ export async function POST(req: NextRequest) {
         candidates.push({
           provider: "openai",
           model: primaryOpenAI,
-          execute: () => callSingleOpenAIModel(primaryOpenAI, cleanBase64, mediaType, openAiKey),
+          execute: () => {
+            if (forceFailAll) return Promise.resolve({ error: "[Simulated Failure] All models forced to fail via test hook" });
+            if (forceFailModels.includes(primaryOpenAI.toLowerCase())) return Promise.resolve({ error: `[Simulated Failure] Model (${primaryOpenAI}) forced to fail via test hook` });
+            return callSingleOpenAIModel(primaryOpenAI, cleanBase64, mediaType, openAiKey);
+          },
         });
       }
     }

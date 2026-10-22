@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseAdmin as supabase } from "@/lib/supabase";
 import { enforceOperatorRole } from "@/lib/operator-auth";
+import type { Json } from "@/types/database";
 import {
   isAuthorizedCollector,
   calculateRouteProgress,
@@ -120,10 +121,15 @@ export async function GET(req: NextRequest) {
 
       // Fetch items summary for each request
       const itemsMap = new Map<string, string>();
+      const aiItemsMap = new Map<
+        string,
+        { item_type: string; brand: string | null; pathway: string; confidence: number }
+      >();
+
       if (requestIds.length > 0) {
         const { data: items } = await supabase
           .from("items")
-          .select("request_id, item_type, waste_avoided_kg")
+          .select("request_id, item_type, brand, waste_avoided_kg, recommendations(recommended_action, confidence)")
           .in("request_id", requestIds);
 
         if (items) {
@@ -133,6 +139,23 @@ export async function GET(req: NextRequest) {
               const list = grouped.get(it.request_id) || [];
               list.push(it.item_type || "E-Waste");
               grouped.set(it.request_id, list);
+
+              if (it.recommendations) {
+                const recList = Array.isArray(it.recommendations)
+                  ? it.recommendations
+                  : [it.recommendations];
+                const rec = recList[0];
+                if (rec && rec.recommended_action && !aiItemsMap.has(it.request_id)) {
+                  aiItemsMap.set(it.request_id, {
+                    item_type: it.item_type
+                      ? it.item_type.charAt(0).toUpperCase() + it.item_type.slice(1)
+                      : "Electronic Item",
+                    brand: it.brand || null,
+                    pathway: rec.recommended_action.toUpperCase(),
+                    confidence: Number(rec.confidence) || 0.94,
+                  });
+                }
+              }
             }
           });
           grouped.forEach((types, reqId) => {
@@ -173,6 +196,7 @@ export async function GET(req: NextRequest) {
         const req = s.request_id ? requestsMap.get(s.request_id) : null;
         const rec = s.request_id ? recordsMap.get(s.request_id) : null;
         const isCollected = s.request_id ? completedRequestIds.has(s.request_id) : false;
+        const aiInfo = s.request_id ? aiItemsMap.get(s.request_id) : null;
 
         return {
           sequence: s.sequence || idx + 1,
@@ -192,6 +216,10 @@ export async function GET(req: NextRequest) {
           is_collected: isCollected,
           actual_weight_kg: rec ? Number(rec.actual_weight_kg) : null,
           collected_at: rec?.verified_at || null,
+          ai_item_type: aiInfo?.item_type || null,
+          ai_brand: aiInfo?.brand || null,
+          ai_pathway: aiInfo?.pathway || null,
+          ai_confidence: aiInfo?.confidence || null,
         };
       });
 
@@ -291,7 +319,7 @@ export async function GET(req: NextRequest) {
 const CollectorRoutePatchSchema = z
   .object({
     route_id: z.string().uuid("route_id must be a valid UUID"),
-    action: z.enum(["start_route", "complete_route", "skip_stop"]),
+    action: z.enum(["start_route", "complete_route", "skip_stop", "assign_stop"]),
     notes: z.string().optional(),
     actor_role: z.string().optional(),
     request_id: z.string().uuid().optional(),
@@ -344,6 +372,50 @@ export async function PATCH(req: NextRequest) {
       });
 
       return NextResponse.json({ success: true, data: updatedRoute });
+    }
+
+    if (action === "assign_stop" && body.request_id) {
+      const { data: routeData, error: routeErr } = await supabase
+        .from("collection_routes")
+        .select("id, stops_json")
+        .eq("id", route_id)
+        .single();
+
+      if (routeErr || !routeData || !Array.isArray(routeData.stops_json)) {
+        return NextResponse.json({ error: "Route not found or has no stops." }, { status: 404 });
+      }
+
+      const stops = [...routeData.stops_json] as Array<Record<string, unknown>>;
+      const targetIdx = stops.findIndex(
+        (s) => s.stop_type === "COLLECTION_STOP" && s.sequence === 1
+      );
+
+      if (targetIdx !== -1) {
+        stops[targetIdx].request_id = body.request_id;
+        const { error: updErr } = await supabase
+          .from("collection_routes")
+          .update({ stops_json: stops as unknown as Json })
+          .eq("id", route_id);
+
+        if (updErr) {
+          return NextResponse.json({ error: updErr.message }, { status: 500 });
+        }
+
+        await supabase
+          .from("collection_requests")
+          .update({ status: "assigned" })
+          .eq("id", body.request_id);
+
+        await supabase.from("event_log").insert({
+          event_type: "PICKUP_ASSIGNED",
+          entity_type: "collection_requests",
+          entity_id: body.request_id,
+          actor_role: role,
+          payload_json: { route_id, sequence: Number(stops[targetIdx].sequence) || 1 },
+        });
+
+        return NextResponse.json({ success: true, updated_stop: stops[targetIdx] });
+      }
     }
 
     if (action === "complete_route") {

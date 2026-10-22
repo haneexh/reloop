@@ -582,13 +582,34 @@ export default function CollectorOpsPage() {
               </div>
             </div>
 
-            {/* Items summary */}
-            {nextStop.items_summary && (
-              <div className="space-y-1 border-t border-[#d8ddd7] pt-2 text-xs">
-                <span className="text-[11px] font-semibold text-[#6b746e]">Items to Collect:</span>
-                <p className="font-mono text-[#151817] bg-white p-2 rounded-[2px] border border-[#e9ede7]">
-                  {nextStop.items_summary}
-                </p>
+            {/* Items summary & AI Assessment Details */}
+            {(nextStop.items_summary || nextStop.ai_item_type) && (
+              <div className="space-y-1.5 border-t border-[#d8ddd7] pt-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-[#6b746e]">Items to Collect:</span>
+                  {nextStop.ai_pathway && (
+                    <div className="flex items-center gap-1.5">
+                      <Badge variant="success" size="sm">
+                        {nextStop.ai_pathway}
+                      </Badge>
+                      {nextStop.ai_confidence && (
+                        <span className="text-[10px] font-mono font-semibold text-[#2e7d57]">
+                          {Math.round(nextStop.ai_confidence * 100)}% AI confidence
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div className="font-mono text-[#151817] bg-white p-2 rounded-[2px] border border-[#e9ede7] flex items-center justify-between">
+                  <span>
+                    {nextStop.ai_item_type
+                      ? `${nextStop.ai_item_type}${nextStop.ai_brand ? ` (${nextStop.ai_brand})` : ""}`
+                      : nextStop.items_summary}
+                  </span>
+                  {nextStop.qr_token && (
+                    <span className="text-[10px] text-[#6b746e]">{nextStop.qr_token}</span>
+                  )}
+                </div>
               </div>
             )}
 
@@ -672,11 +693,31 @@ export default function CollectorOpsPage() {
                     {isDone ? "✓" : stop.sequence}
                   </span>
                   <div>
-                    <span className="font-semibold text-[#151817] block">
-                      {stop.locality || `Stop #${stop.sequence}`}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-[#151817] block">
+                        {stop.locality || `Stop #${stop.sequence}`}
+                      </span>
+                      {stop.qr_token && (
+                        <span className="text-[10px] font-mono text-[#6b746e] font-semibold">
+                          {stop.qr_token}
+                        </span>
+                      )}
+                      {stop.ai_pathway && (
+                        <Badge variant="success" size="sm">
+                          {stop.ai_pathway}
+                        </Badge>
+                      )}
+                    </div>
                     <span className="text-[11px] text-[#6b746e] block font-mono">
+                      {stop.ai_item_type
+                        ? `${stop.ai_item_type}${stop.ai_brand ? ` (${stop.ai_brand})` : ""} · `
+                        : stop.items_summary
+                        ? `${stop.items_summary} · `
+                        : ""}
                       {stop.pickup_slot || "Scheduled Slot"} · ~{stop.estimated_weight_kg} kg
+                      {stop.ai_confidence
+                        ? ` · ${Math.round(stop.ai_confidence * 100)}% AI conf`
+                        : ""}
                     </span>
                   </div>
                 </div>
